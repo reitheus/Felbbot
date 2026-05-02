@@ -1,7 +1,7 @@
 import { getDb } from '../utils/firebase.js';
-import { isLeader, CATEGORIES, PRIORITY } from '../utils/constants.js';
-import { refreshTaskboard, refreshSingleTask, createTaskThread, postToThread } from '../utils/taskboard.js';
-import { sendToApproval, removeFromApproval } from '../utils/approval.js';
+import { isLeader, CATEGORIES, PRIORITY, PENDING_SELECTION_TTL, MAX_TASKS_PER_USER } from '../utils/constants.js';
+import { refreshSingleTask, createTaskThread, postToThread, removeFromThread } from '../utils/taskboard.js';
+import { sendToApproval, removeFromApproval, notifyCreator } from '../utils/approval.js';
 import {
     ActionRowBuilder,
     ButtonBuilder,
@@ -14,7 +14,16 @@ import {
 
 export const name = 'interactionCreate';
 
+// pendingSelections: userId -> { category, priority, expiresAt }
 const pendingSelections = new Map();
+
+/** Limpa seleções expiradas */
+function cleanExpired() {
+    const now = Date.now();
+    for (const [userId, sel] of pendingSelections.entries()) {
+        if (sel.expiresAt < now) pendingSelections.delete(userId);
+    }
+}
 
 export async function execute(interaction) {
 
@@ -32,15 +41,19 @@ export async function execute(interaction) {
         return;
     }
 
-    // ── Select menus — Step 1: categoria e prioridade ─────────────────────────
+    // ── Select menus — Step 1 ─────────────────────────────────────────────────
     if (interaction.isStringSelectMenu()) {
+        cleanExpired();
         const userId = interaction.user.id;
 
-        if (!pendingSelections.has(userId)) pendingSelections.set(userId, {});
+        if (!pendingSelections.has(userId)) {
+            pendingSelections.set(userId, { expiresAt: Date.now() + PENDING_SELECTION_TTL });
+        }
         const sel = pendingSelections.get(userId);
 
         if (interaction.customId === 'select_task_category') sel.category = interaction.values[0];
         if (interaction.customId === 'select_task_priority') sel.priority = interaction.values[0];
+        sel.expiresAt = Date.now() + PENDING_SELECTION_TTL; // renova ao interagir
 
         if (sel.category && sel.priority) {
             const catInfo = CATEGORIES[sel.category] ?? { label: sel.category };
@@ -72,10 +85,11 @@ export async function execute(interaction) {
 
     // ── Botão: abrir modal (Step 2) ───────────────────────────────────────────
     if (interaction.isButton() && interaction.customId === 'btn_open_task_modal') {
+        cleanExpired();
         const sel = pendingSelections.get(interaction.user.id);
-        if (!sel?.category || !sel?.priority) {
+        if (!sel?.category || !sel?.priority || sel.expiresAt < Date.now()) {
             return interaction.reply({
-                content: '⏱️ Sua seleção expirou. Use `/task criar` para começar novamente.',
+                content: '⏱️ Sua seleção expirou (5 min). Use `/task criar` para começar novamente.',
                 flags: 64,
             });
         }
@@ -113,8 +127,9 @@ export async function execute(interaction) {
     if (interaction.isModalSubmit() && interaction.customId === 'modal_create_task') {
         await interaction.deferReply({ flags: 64 });
 
+        cleanExpired();
         const sel = pendingSelections.get(interaction.user.id);
-        if (!sel?.category || !sel?.priority) {
+        if (!sel?.category || !sel?.priority || sel.expiresAt < Date.now()) {
             return interaction.editReply('⏱️ Sua seleção expirou. Use `/task criar` para começar novamente.');
         }
 
@@ -122,16 +137,38 @@ export async function execute(interaction) {
         const desc = interaction.fields.getTextInputValue('task_description').trim();
 
         const db = getDb();
-        const ref = await db.collection('tasks').add({
-            title,
-            description: desc || null,
-            category: sel.category,
-            priority: sel.priority,
-            status: 'open',
-            createdBy: interaction.user.id,
-            createdAt: new Date(),
-            takenBy: null,
-        });
+
+        // Verifica se já existe uma tarefa "open" ou "approved" igual (duplicata)
+        const dupSnap = await db.collection('tasks')
+            .where('createdBy', '==', interaction.user.id)
+            .where('status', 'in', ['open', 'approved'])
+            .get().catch(() => null);
+
+        if (dupSnap && !dupSnap.empty) {
+            const dup = dupSnap.docs.find(d => d.data().title.toLowerCase() === title.toLowerCase());
+            if (dup) {
+                return interaction.editReply('⚠️ Você já tem uma tarefa com este título aguardando aprovação.');
+            }
+        }
+
+        let ref;
+        try {
+            ref = await db.collection('tasks').add({
+                title,
+                description: desc || null,
+                category: sel.category,
+                priority: sel.priority,
+                status: 'open',
+                createdBy: interaction.user.id,
+                createdAt: new Date(),
+                takenBy: null,
+                discordMessageId: null,
+                discordThreadId: null,
+            });
+        } catch (err) {
+            console.error('Erro ao criar tarefa:', err);
+            return interaction.editReply('❌ Erro ao salvar a tarefa. Tente novamente em instantes.');
+        }
 
         pendingSelections.delete(interaction.user.id);
 
@@ -167,7 +204,14 @@ export async function execute(interaction) {
 
         const db = getDb();
         const ref = db.collection('tasks').doc(taskId);
-        const doc = await ref.get();
+
+        let doc;
+        try {
+            doc = await ref.get();
+        } catch (err) {
+            console.error('Erro ao buscar tarefa:', err);
+            return interaction.reply({ content: '❌ Erro ao acessar o banco de dados. Tente novamente.', flags: 64 });
+        }
 
         if (!doc.exists) {
             return interaction.reply({ content: '❌ Tarefa não encontrada ou já removida.', flags: 64 });
@@ -191,7 +235,7 @@ export async function execute(interaction) {
                         new EmbedBuilder()
                             .setColor(0x2ecc71)
                             .setTitle('✅  Tarefa aprovada!')
-                            .setDescription(`A tarefa **${task.title}** foi aprovada e já está disponível no taskboard para os membros assumirem.`)
+                            .setDescription(`A tarefa **${task.title}** foi aprovada e já está disponível no taskboard.`)
                             .setTimestamp(),
                     ],
                     flags: 64,
@@ -221,6 +265,26 @@ export async function execute(interaction) {
             if (task.status !== 'approved') {
                 return interaction.reply({ content: '❌ Esta tarefa não está mais disponível.', flags: 64 });
             }
+
+            // Verifica limite de tarefas simultâneas
+            const activeSnap = await db.collection('tasks')
+                .where('takenBy', '==', interaction.user.id)
+                .where('status', '==', 'taken')
+                .get().catch(() => null);
+
+            if (activeSnap && activeSnap.size >= MAX_TASKS_PER_USER) {
+                return interaction.reply({
+                    embeds: [
+                        new EmbedBuilder()
+                            .setColor(0xe74c3c)
+                            .setTitle('⚠️  Limite de tarefas atingido')
+                            .setDescription(`Você já tem **${activeSnap.size}** tarefa(s) em andamento.\nConclua uma antes de assumir outra. (Limite: ${MAX_TASKS_PER_USER})`)
+                            .setTimestamp(),
+                    ],
+                    flags: 64,
+                });
+            }
+
             await ref.update({ status: 'taken', takenBy: interaction.user.id, takenAt: new Date() });
             await interaction.reply({
                 embeds: [
@@ -249,7 +313,15 @@ export async function execute(interaction) {
                 });
             }
 
-            await ref.update({ status: 'done', doneBy: interaction.user.id, doneAt: new Date() });
+            try {
+                await ref.update({ status: 'done', doneBy: interaction.user.id, doneAt: new Date() });
+            } catch (err) {
+                console.error('Erro ao concluir tarefa:', err);
+                return interaction.reply({ content: '❌ Erro ao atualizar a tarefa. Tente novamente.', flags: 64 });
+            }
+
+            // Remove o responsável do tópico
+            await removeFromThread(interaction.client, taskId, task.takenBy);
 
             if (interaction.channel?.isThread?.()) {
                 const disabledBtn = new ButtonBuilder();
@@ -285,7 +357,6 @@ export async function execute(interaction) {
                 );
             }
 
-            await removeFromThread(interaction.client, taskId, task.takenBy);
             await refreshSingleTask(interaction.client, taskId);
             return;
         }
