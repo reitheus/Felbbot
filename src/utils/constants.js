@@ -1,0 +1,30 @@
+export const CATEGORIES = {
+  logistics: { label: '🚛 Logística', color: 0xf0a500 },
+  production: { label: '🏭 Produção',  color: 0x3b82f6 },
+};
+
+export const STATUS = {
+  open:      { label: '🟨 Aberta',      color: 0xf0a500 },
+  approved:  { label: '🟩 Aprovada',    color: 0x22c55e },
+  taken:     { label: '🔵 Em andamento',color: 0x3b82f6 },
+  done:      { label: '✅ Concluída',   color: 0x6b7280 },
+  rejected:  { label: '🟥 Rejeitada',   color: 0xef4444 },
+};
+
+export const PRIORITY = {
+    low: {
+        label: '🟢 Baixa', emoji: '🟢'
+    },
+    medium: {
+        label: '🟡 Média', emoji: '🟡'
+    },
+    high: {
+        label: '🔴 Alta', emoji: '🔴'
+    }
+};
+
+/** Verifica se o membro possui algum dos cargos de líder */
+export function isLeader(member) {
+    const leaderIds = process.env.LEADER_ROLE_IDS?.split(',').map(s => s.trim()) ?? [];
+    return leaderIds.some(id => member.roles.cache.has(id));
+}
