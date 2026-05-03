@@ -1,9 +1,12 @@
 import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { getDb } from './firebase.js';
-import { CATEGORIES, STATUS, PRIORITY } from './constants.js';
+import { CATEGORIES, STATUS, PRIORITY, TASK_REMINDER_MS } from './constants.js';
 
 // Cache local: taskId -> { messageId, threadId }
 const messageCache = new Map();
+
+// Timers de lembrete: taskId -> timeoutId
+const reminderTimers = new Map();
 
 export async function refreshTaskboard(client) {
     const channelId = process.env.TASKBOARD_CHANNEL_ID;
@@ -62,6 +65,13 @@ export async function refreshTaskboard(client) {
 
         const sent = await channel.send({ embeds: [embed], components });
         messageCache.set(task.id, { messageId: sent.id, threadId: null });
+
+        // Restaura lembrete para tarefas em andamento ao reiniciar
+        if (task.status === 'taken' && task.takenAt) {
+            const elapsed = Date.now() - task.takenAt.toDate().getTime();
+            const remaining = TASK_REMINDER_MS - elapsed;
+            if (remaining > 0) scheduleReminder(client, task.id, task.takenBy, remaining);
+        }
     }
 }
 
@@ -72,8 +82,8 @@ export async function refreshSingleTask(client, taskId) {
     if (!channel) return;
 
     const db = getDb();
-    const doc = await db.collection('tasks').doc(taskId).get();
-    if (!doc.exists) return;
+    const doc = await db.collection('tasks').doc(taskId).get().catch(() => null);
+    if (!doc?.exists) return;
 
     const task = { id: doc.id, ...doc.data() };
 
@@ -84,6 +94,10 @@ export async function refreshSingleTask(client, taskId) {
             if (msg) await msg.delete().catch(() => { });
             messageCache.delete(taskId);
         }
+        cancelReminder(taskId);
+
+        // Persiste remoção do messageId no Firestore
+        await db.collection('tasks').doc(taskId).update({ discordMessageId: null, discordThreadId: null }).catch(() => { });
         return;
     }
 
@@ -100,6 +114,9 @@ export async function refreshSingleTask(client, taskId) {
 
     const sent = await channel.send({ embeds: [embed], components });
     messageCache.set(taskId, { messageId: sent.id, threadId: null });
+
+    // Persiste o messageId no Firestore
+    await db.collection('tasks').doc(taskId).update({ discordMessageId: sent.id }).catch(() => { });
 }
 
 /** Cria um tópico na mensagem da tarefa quando alguém a pega */
@@ -114,7 +131,7 @@ export async function createTaskThread(client, taskId, takenByUserId) {
     if (cached.threadId) {
         const thread = await client.channels.fetch(cached.threadId).catch(() => null);
         if (thread) {
-            await thread.send(`🔵  <@${takenByUserId}> assumiu esta tarefa!`);
+            await thread.members.add(takenByUserId).catch(() => { });
             return;
         }
     }
@@ -138,8 +155,7 @@ export async function createTaskThread(client, taskId, takenByUserId) {
     doneBtn.setEmoji('✅');
 
     const row = new ActionRowBuilder().addComponents(doneBtn);
-
-    const priInfo = PRIORITY[task.priority] ?? { label: task.priority, emoji: '' };
+    const priInfo = PRIORITY[task.priority] ?? { label: task.priority };
     const catInfo = CATEGORIES[task.category] ?? { label: task.category };
 
     await thread.send({
@@ -161,26 +177,105 @@ export async function createTaskThread(client, taskId, takenByUserId) {
         ],
         components: [row],
     });
+
     await thread.members.add(takenByUserId).catch(() => { });
+
     messageCache.set(taskId, { messageId: cached.messageId, threadId: thread.id });
+
+    // Persiste threadId no Firestore
+    await db.collection('tasks').doc(taskId).update({ discordThreadId: thread.id }).catch(() => { });
+
+    // Agenda lembrete de inatividade
+    scheduleReminder(client, taskId, takenByUserId, TASK_REMINDER_MS);
+
+    // Agenda lembrete de prazo (avisa 30 min antes se houver prazo)
+    if (task.deadlineAt) {
+        const deadlineDate = task.deadlineAt?.toDate ? task.deadlineAt.toDate() : new Date(task.deadlineAt);
+        const msUntilWarning = deadlineDate.getTime() - Date.now() - 30 * 60_000;
+        if (msUntilWarning > 0) {
+            setTimeout(async () => {
+                const cached2 = messageCache.get(taskId);
+                if (!cached2?.threadId) return;
+                const db2 = getDb();
+                const doc2 = await db2.collection('tasks').doc(taskId).get().catch(() => null);
+                if (!doc2?.exists || doc2.data().status !== 'taken') return;
+                const thread2 = await client.channels.fetch(cached2.threadId).catch(() => null);
+                if (!thread2) return;
+                const unix = Math.floor(deadlineDate.getTime() / 1000);
+                await thread2.send({
+                    embeds: [
+                        new EmbedBuilder()
+                            .setColor(0xe74c3c)
+                            .setTitle('⚠️  Prazo se aproximando!')
+                            .setDescription(`<@${takenByUserId}>, o prazo desta tarefa expira <t:${unix}:R>!
+
+Conclua logo ou avise o regimento se precisar de ajuda.`)
+                            .setTimestamp(),
+                    ],
+                }).catch(() => { });
+            }, msUntilWarning);
+        }
+    }
 }
 
 /** Manda uma mensagem de status no tópico da tarefa */
 export async function postToThread(client, taskId, message) {
     const cached = messageCache.get(taskId);
     if (!cached?.threadId) return;
-
     const thread = await client.channels.fetch(cached.threadId).catch(() => null);
     if (thread) await thread.send(message).catch(() => { });
 }
 
-/** Remove o membro do topico */
+/** Remove um usuário do tópico da tarefa */
 export async function removeFromThread(client, taskId, userId) {
     const cached = messageCache.get(taskId);
     if (!cached?.threadId) return;
-
     const thread = await client.channels.fetch(cached.threadId).catch(() => null);
     if (thread) await thread.members.remove(userId).catch(() => { });
+}
+
+/** Agenda lembrete automático para tarefa em andamento */
+function scheduleReminder(client, taskId, userId, delay) {
+    cancelReminder(taskId);
+    const timer = setTimeout(async () => {
+        const cached = messageCache.get(taskId);
+        if (!cached?.threadId) return;
+
+        const db = getDb();
+        const doc = await db.collection('tasks').doc(taskId).get().catch(() => null);
+        if (!doc?.exists) return;
+
+        const task = doc.data();
+        if (task.status !== 'taken') return;
+
+        const thread = await client.channels.fetch(cached.threadId).catch(() => null);
+        if (!thread) return;
+
+        await thread.send({
+            embeds: [
+                new EmbedBuilder()
+                    .setColor(0xe67e22)
+                    .setTitle('⏰  Lembrete de tarefa')
+                    .setDescription(
+                        `<@${userId}>, esta tarefa está em andamento há mais de ${Math.round(TASK_REMINDER_MS / 3600000)}h.\n\n` +
+                        `Precisa de ajuda ou já concluiu? Atualize o status!`
+                    )
+                    .setTimestamp(),
+            ],
+        });
+
+        reminderTimers.delete(taskId);
+    }, delay);
+
+    reminderTimers.set(taskId, timer);
+}
+
+function cancelReminder(taskId) {
+    const timer = reminderTimers.get(taskId);
+    if (timer) {
+        clearTimeout(timer);
+        reminderTimers.delete(taskId);
+    }
 }
 
 function buildTaskMessage(task) {
@@ -201,8 +296,25 @@ function buildTaskMessage(task) {
         .setFooter({ text: `ID: ${task.id}  •  FELB Regiment` })
         .setTimestamp(task.createdAt?.toDate?.() ?? new Date());
 
+    if (task.imageUrl) embed.setImage(task.imageUrl);
+
     if (task.takenBy) {
         embed.addFields({ name: '🪖  Responsável', value: `<@${task.takenBy}>`, inline: true });
+    }
+
+    if (task.deadlineAt) {
+        const deadlineDate = task.deadlineAt?.toDate ? task.deadlineAt.toDate() : new Date(task.deadlineAt);
+        const unix = Math.floor(deadlineDate.getTime() / 1000);
+        const now = Date.now();
+        const expired = deadlineDate.getTime() < now;
+        embed.addFields({
+            name: expired ? '🔴  Prazo EXPIRADO' : '⏳  Prazo',
+            value: `<t:${unix}:R> (<t:${unix}:f>)`,
+            inline: false,
+        });
+        if (expired && task.status === 'taken') {
+            embed.setColor(0xe74c3c); // vermelho se expirou e ainda em andamento
+        }
     }
 
     const buttons = buildButtons(task);
