@@ -1,6 +1,10 @@
 export const CATEGORIES = {
-  logistics: { label: '🚛 Logística', color: 0xf0a500 },
-  production: { label: '🏭 Produção',  color: 0x3b82f6 },
+    logistics: { label: '🚛 Logística', color: 0xf0a500 },
+    production: { label: '🏭 Produção', color: 0x3b82f6 },
+    recon: { label: '🔍  Reconhecimento', color: 0x9b59b6 },
+    queue: { label: '📋  Fila de Fábrica', color: 0x1abc9c },
+    gathering: { label: '⛏️  Coleta', color: 0x795548 },
+
 };
 
 export const STATUS = {

@@ -63,16 +63,15 @@ export async function execute(interaction) {
 
     // ── /task criar ──────────────────────────────────────────────────────────
     if (sub === 'criar') {
-        const { isStaff } = await import('../utils/constants.js');
-        if (!isStaff(interaction.member)) {
-            return interaction.reply({ content: '🔒 Apenas staff podem cancelar tarefas.', flags: 64 });
-        }
         const categorySelect = new StringSelectMenuBuilder();
         categorySelect.setCustomId('select_task_category');
         categorySelect.setPlaceholder('Selecione a categoria...');
         categorySelect.addOptions(
             new StringSelectMenuOptionBuilder().setLabel('🚛 Logística').setDescription('Transporte e suprimentos').setValue('logistics'),
             new StringSelectMenuOptionBuilder().setLabel('🏭 Produção').setDescription('Fábricas e munição').setValue('production'),
+            new StringSelectMenuOptionBuilder().setLabel('🔍 Reconhecimento').setDescription('Scouting e mapeamento de inimigos').setValue('recon'),
+            new StringSelectMenuOptionBuilder().setLabel('📋 Fila de Fábrica').setDescription('Gerenciar filas e prioridades de produção').setValue('queue'),
+            new StringSelectMenuOptionBuilder().setLabel('⛏️ Coleta').setDescription('Coletar recursos e materiais brutos').setValue('gathering'),
         );
 
         const prioritySelect = new StringSelectMenuBuilder();
@@ -83,7 +82,6 @@ export async function execute(interaction) {
             new StringSelectMenuOptionBuilder().setLabel('🟡 Média').setDescription('Importante mas não urgente').setValue('medium'),
             new StringSelectMenuOptionBuilder().setLabel('🔴 Alta').setDescription('Urgente, precisa de atenção imediata').setValue('high'),
         );
-        
 
         const embed = new EmbedBuilder()
             .setTitle('📋  Nova Tarefa — Passo 1 de 2')

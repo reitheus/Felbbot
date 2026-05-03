@@ -64,6 +64,9 @@ export async function execute(interaction) {
         categorySelect.addOptions(
             new StringSelectMenuOptionBuilder().setLabel('🚛 Logística').setDescription('Transporte e suprimentos').setValue('logistics').setDefault(sel.category === 'logistics'),
             new StringSelectMenuOptionBuilder().setLabel('🏭 Produção').setDescription('Fábricas e munição').setValue('production').setDefault(sel.category === 'production'),
+            new StringSelectMenuOptionBuilder().setLabel('🔍 Reconhecimento').setDescription('Scouting e mapeamento de inimigos').setValue('recon').setDefault(sel.category === 'recon'),
+            new StringSelectMenuOptionBuilder().setLabel('📋 Fila de Fábrica').setDescription('Gerenciar filas e prioridades de produção').setValue('queue').setDefault(sel.category === 'queue'),
+            new StringSelectMenuOptionBuilder().setLabel('⛏️ Coleta').setDescription('Coletar recursos e materiais brutos').setValue('gathering').setDefault(sel.category === 'gathering'),
         );
 
         const prioritySelect = new StringSelectMenuBuilder();
@@ -220,6 +223,114 @@ export async function execute(interaction) {
                 new ActionRowBuilder().addComponents(obsInput),
                 new ActionRowBuilder().addComponents(deadlineInput),
             );
+
+        } else if (sel.category === 'recon') {
+            titleInput.setPlaceholder('Ex: Mapear movimentação inimiga em Callahan\'s Belt');
+
+      const areaInput = new TextInputBuilder();
+            areaInput.setCustomId('task_field1');
+            areaInput.setLabel('Área / Região alvo');
+            areaInput.setStyle(TextInputStyle.Short);
+            areaInput.setPlaceholder('Ex: Callahan\'s Belt — setor norte');
+      areaInput.setRequired(true);
+            areaInput.setMaxLength(150);
+
+            const objectiveInput = new TextInputBuilder();
+            objectiveInput.setCustomId('task_field2');
+            objectiveInput.setLabel('Objetivo do reconhecimento');
+            objectiveInput.setStyle(TextInputStyle.Short);
+            objectiveInput.setPlaceholder('Ex: Localizar posições de artilharia inimiga');
+            objectiveInput.setRequired(true);
+            objectiveInput.setMaxLength(200);
+
+            const obsInputR = new TextInputBuilder();
+            obsInputR.setCustomId('task_field3');
+            obsInputR.setLabel('Observações (opcional)');
+            obsInputR.setStyle(TextInputStyle.Paragraph);
+            obsInputR.setPlaceholder('Última info conhecida, nível de risco, equipamento necessário...');
+            obsInputR.setRequired(false);
+            obsInputR.setMaxLength(300);
+
+            modal.setTitle('🔍  Reconhecimento — Detalhes');
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(titleInput),
+                new ActionRowBuilder().addComponents(areaInput),
+                new ActionRowBuilder().addComponents(objectiveInput),
+                new ActionRowBuilder().addComponents(obsInputR),
+                new ActionRowBuilder().addComponents(deadlineInput),
+            );
+
+        } else if (sel.category === 'queue') {
+            titleInput.setPlaceholder('Ex: Colocar filas na Forge');
+
+            const factoryQInput = new TextInputBuilder();
+            factoryQInput.setCustomId('task_field1');
+            factoryQInput.setLabel('Fábrica / Local');
+            factoryQInput.setStyle(TextInputStyle.Short);
+            factoryQInput.setPlaceholder('Ex: Forge / Campo de Sucata');
+            factoryQInput.setRequired(true);
+            factoryQInput.setMaxLength(150);
+
+            const queueItemsInput = new TextInputBuilder();
+            queueItemsInput.setCustomId('task_field2');
+            queueItemsInput.setLabel('Filas:');
+            queueItemsInput.setStyle(TextInputStyle.Paragraph);
+            queueItemsInput.setPlaceholder('3x Filas de Assembly 1\n2x Filas de Msup\n3. ...');
+      queueItemsInput.setRequired(true);
+            queueItemsInput.setMaxLength(400);
+
+            const obsInputQ = new TextInputBuilder();
+            obsInputQ.setCustomId('task_field3');
+            obsInputQ.setLabel('Observações (opcional)');
+            obsInputQ.setStyle(TextInputStyle.Short);
+            obsInputQ.setPlaceholder('Materiais já disponíveis, restrições, destino da produção...');
+            obsInputQ.setRequired(false);
+            obsInputQ.setMaxLength(200);
+
+            modal.setTitle('📋  Fila de Fábrica — Detalhes');
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(titleInput),
+                new ActionRowBuilder().addComponents(factoryQInput),
+                new ActionRowBuilder().addComponents(queueItemsInput),
+                new ActionRowBuilder().addComponents(obsInputQ),
+                new ActionRowBuilder().addComponents(deadlineInput),
+            );
+
+        } else if (sel.category === 'gathering') {
+            titleInput.setPlaceholder('Ex: Coletar Sulfur Coal em Weathered Expanse');
+
+            const resourceInput = new TextInputBuilder();
+            resourceInput.setCustomId('task_field1');
+            resourceInput.setLabel('Recurso e quantidade');
+            resourceInput.setStyle(TextInputStyle.Short);
+            resourceInput.setPlaceholder('Ex: 500x Sulfur Coal');
+            resourceInput.setRequired(true);
+            resourceInput.setMaxLength(100);
+
+            const locationInput = new TextInputBuilder();
+            locationInput.setCustomId('task_field2');
+            locationInput.setLabel('Local de Deposito');
+            locationInput.setStyle(TextInputStyle.Short);
+            locationInput.setPlaceholder('Ex: Weathered Expanse — campo norte');
+            locationInput.setRequired(true);
+            locationInput.setMaxLength(150);
+
+            const obsInputG = new TextInputBuilder();
+            obsInputG.setCustomId('task_field3');
+            obsInputG.setLabel('Observações (opcional)');
+            obsInputG.setStyle(TextInputStyle.Paragraph);
+            obsInputG.setPlaceholder('Levar para a facility principal, Transformar em HEMat,...');
+            obsInputG.setRequired(false);
+            obsInputG.setMaxLength(300);
+
+            modal.setTitle('⛏️  Coleta — Detalhes');
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(titleInput),
+                new ActionRowBuilder().addComponents(resourceInput),
+                new ActionRowBuilder().addComponents(locationInput),
+                new ActionRowBuilder().addComponents(obsInputG),
+                new ActionRowBuilder().addComponents(deadlineInput),
+            );
         }
 
         await interaction.showModal(modal);
@@ -251,6 +362,15 @@ export async function execute(interaction) {
             if (field3) desc += `\n**📝 Obs:** ${field3}`;
         } else if (sel.category === 'production') {
             desc = `**🔧 Item:** ${field1}\n**🏭 Fábrica:** ${field2}`;
+            if (field3) desc += `\n**📝 Obs:** ${field3}`;
+        } else if (sel.category === 'recon') {
+            desc = `**📍 Área:** ${field1}\n**🎯 Objetivo:** ${field2}`;
+            if (field3) desc += `\n**📝 Obs:** ${field3}`;
+        } else if (sel.category === 'queue') {
+            desc = `**🏭 Fábrica:** ${field1}\n**📋 Fila:**\n${field2}`;
+            if (field3) desc += `\n**📝 Obs:** ${field3}`;
+        } else if (sel.category === 'gathering') {
+            desc = `**⛏️ Recurso:** ${field1}\n**📍 Local:** ${field2}`;
             if (field3) desc += `\n**📝 Obs:** ${field3}`;
         }
 
@@ -427,7 +547,7 @@ export async function execute(interaction) {
                     new EmbedBuilder()
                         .setColor(0x3498db)
                         .setTitle('🪖  Tarefa assumida!')
-                        .setDescription(`Você assumiu a tarefa **${task.title}**.\nUm tópico foi criado para acompanhamento — use-o para atualizações e coordenação com o regimento.`)
+                        .setDescription(`Você assumiu a tarefa **${task.title}**.\nUm tópico foi criado para acompanhamento — use-o para atualizações e coordenação com os membros.`)
                         .setTimestamp(),
                 ],
                 flags: 64,
@@ -473,7 +593,7 @@ export async function execute(interaction) {
                         new EmbedBuilder()
                             .setColor(0x2ecc71)
                             .setTitle('🎖️  Missão cumprida!')
-                            .setDescription(`<@${interaction.user.id}> concluiu esta tarefa. Excelente trabalho, soldado!`)
+                            .setDescription(`<@${interaction.user.id}> concluiu esta tarefa. Excelente trabalho!`)
                             .setTimestamp(),
                     ],
                 });
@@ -483,13 +603,13 @@ export async function execute(interaction) {
                         new EmbedBuilder()
                             .setColor(0x2ecc71)
                             .setTitle('🎖️  Missão cumprida!')
-                            .setDescription(`A tarefa **${task.title}** foi concluída por <@${interaction.user.id}>. Excelente trabalho!`)
+                            .setDescription(`A tarefa **${task.title}** foi concluída por <@${interaction.user.id}>. Excelente trabalho, Callahan Agradece!`)
                             .setTimestamp(),
                     ],
                     flags: 64,
                 });
                 await postToThread(interaction.client, taskId,
-                    `🎖️  **Missão cumprida!** <@${interaction.user.id}> concluiu esta tarefa. Obrigado pelo serviço, soldado!`
+                    `🎖️  **Missão cumprida!** <@${interaction.user.id}> concluiu esta tarefa. Obrigado pelo serviço!`
                 );
             }
 

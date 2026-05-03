@@ -207,7 +207,9 @@ export async function createTaskThread(client, taskId, takenByUserId) {
                         new EmbedBuilder()
                             .setColor(0xe74c3c)
                             .setTitle('⚠️  Prazo se aproximando!')
-                            .setDescription(`<@${takenByUserId}>, o prazo desta tarefa expira <t:${unix}:R>!Conclua logo ou avise o regimento se precisar de ajuda.`)
+                            .setDescription(`<@${takenByUserId}>, o prazo desta tarefa expira <t:${unix}:R>!
+
+Conclua logo ou avise o regimento se precisar de ajuda.`)
                             .setTimestamp(),
                     ],
                 }).catch(() => { });
@@ -293,6 +295,8 @@ function buildTaskMessage(task) {
         )
         .setFooter({ text: `ID: ${task.id}  •  FELB Regiment` })
         .setTimestamp(task.createdAt?.toDate?.() ?? new Date());
+
+    if (task.imageUrl) embed.setImage(task.imageUrl);
 
     if (task.takenBy) {
         embed.addFields({ name: '🪖  Responsável', value: `<@${task.takenBy}>`, inline: true });
