@@ -23,8 +23,8 @@ export const data = new SlashCommandBuilder()
             .addStringOption(opt =>
                 opt.setName('status').setDescription('Filtrar por status')
                     .addChoices(
-                        { name: '🟡 Abertas', value: 'open' },
-                        { name: '🟢 Aprovadas', value: 'approved' },
+                        { name: '🟨 Abertas', value: 'open' },
+                        { name: '🟩 Aprovadas', value: 'approved' },
                         { name: '🔵 Em andamento', value: 'taken' },
                         { name: '✅ Concluídas', value: 'done' },
                     ),
@@ -63,6 +63,10 @@ export async function execute(interaction) {
 
     // ── /task criar ──────────────────────────────────────────────────────────
     if (sub === 'criar') {
+        const { isStaff } = await import('../utils/constants.js');
+        if (!isStaff(interaction.member)) {
+            return interaction.reply({ content: '🔒 Apenas staff podem cancelar tarefas.', flags: 64 });
+        }
         const categorySelect = new StringSelectMenuBuilder();
         categorySelect.setCustomId('select_task_category');
         categorySelect.setPlaceholder('Selecione a categoria...');
@@ -75,10 +79,11 @@ export async function execute(interaction) {
         prioritySelect.setCustomId('select_task_priority');
         prioritySelect.setPlaceholder('Selecione a prioridade...');
         prioritySelect.addOptions(
-            new StringSelectMenuOptionBuilder().setLabel('🟩 Baixa').setDescription('Pode ser feito quando possível').setValue('low'),
-            new StringSelectMenuOptionBuilder().setLabel('🟨 Média').setDescription('Importante mas não urgente').setValue('medium'),
-            new StringSelectMenuOptionBuilder().setLabel('🟥 Alta').setDescription('Urgente, precisa de atenção imediata').setValue('high'),
+            new StringSelectMenuOptionBuilder().setLabel('🟢 Baixa').setDescription('Pode ser feito quando possível').setValue('low'),
+            new StringSelectMenuOptionBuilder().setLabel('🟡 Média').setDescription('Importante mas não urgente').setValue('medium'),
+            new StringSelectMenuOptionBuilder().setLabel('🔴 Alta').setDescription('Urgente, precisa de atenção imediata').setValue('high'),
         );
+        
 
         const embed = new EmbedBuilder()
             .setTitle('📋  Nova Tarefa — Passo 1 de 2')
@@ -163,7 +168,7 @@ export async function execute(interaction) {
         if (t.takenBy) embed.addFields({ name: '🪖  Responsável', value: `<@${t.takenBy}>`, inline: true });
         if (t.approvedBy) embed.addFields({ name: '✅  Aprovado por', value: `<@${t.approvedBy}>`, inline: true });
         if (t.doneBy) embed.addFields({ name: '🎖️  Concluído por', value: `<@${t.doneBy}>`, inline: true });
-        if (t.rejectedBy) embed.addFields({ name: '🔴  Rejeitado por', value: `<@${t.rejectedBy}>`, inline: true });
+        if (t.rejectedBy) embed.addFields({ name: '🟥  Rejeitado por', value: `<@${t.rejectedBy}>`, inline: true });
 
         return interaction.editReply({ embeds: [embed] });
     }

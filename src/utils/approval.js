@@ -24,6 +24,11 @@ export async function sendToApproval(client, task) {
             { name: '⚡  Prioridade', value: priInfo.label, inline: true },
             { name: '👤  Solicitado por', value: `<@${task.createdBy}>`, inline: true },
             { name: '📝  Descrição', value: task.description || '_Sem descrição_', inline: false },
+            ...(task.deadlineAt ? [{
+                name: '⏳  Prazo',
+                value: `<t:${Math.floor((task.deadlineAt instanceof Date ? task.deadlineAt : new Date(task.deadlineAt)).getTime() / 1000)}:R>`,
+                inline: true,
+            }] : []),
         )
         .setFooter({ text: `ID: ${task.id}  •  FELB Regiment` })
         .setTimestamp();
@@ -72,30 +77,4 @@ export async function removeFromApproval(client, taskId) {
     );
 
     if (target) await target.delete().catch(() => { });
-}
-
-/** Notifica o criador via DM quando a tarefa é aprovada ou rejeitada */
-export async function notifyCreator(client, task, action, leaderUserId) {
-    try {
-        const creator = await client.users.fetch(task.createdBy).catch(() => null);
-        if (!creator) return;
-
-        const isApproved = action === 'approved';
-
-        await creator.send({
-            embeds: [
-                new EmbedBuilder()
-                    .setColor(isApproved ? 0x2ecc71 : 0xe74c3c)
-                    .setTitle(isApproved ? '✅  Sua tarefa foi aprovada!' : '🔴  Sua tarefa foi rejeitada')
-                    .setDescription(
-                        isApproved
-                            ? `A tarefa **${task.title}** foi aprovada por <@${leaderUserId}> e já está disponível no taskboard para os membros assumirem.`
-                            : `A tarefa **${task.title}** foi rejeitada por <@${leaderUserId}>.\n\nSe tiver dúvidas, entre em contato com um líder do regimento.`
-                    )
-                    .setTimestamp(),
-            ],
-        }).catch(() => { }); // ignora se DM estiver fechada
-    } catch (err) {
-        console.error('Erro ao notificar criador:', err);
-    }
 }

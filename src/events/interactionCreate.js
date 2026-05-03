@@ -1,7 +1,7 @@
 import { getDb } from '../utils/firebase.js';
 import { isLeader, CATEGORIES, PRIORITY, PENDING_SELECTION_TTL, MAX_TASKS_PER_USER } from '../utils/constants.js';
 import { refreshSingleTask, createTaskThread, postToThread, removeFromThread } from '../utils/taskboard.js';
-import { sendToApproval, removeFromApproval, notifyCreator } from '../utils/approval.js';
+import { sendToApproval, removeFromApproval} from '../utils/approval.js';
 import {
     ActionRowBuilder,
     ButtonBuilder,
@@ -53,7 +53,27 @@ export async function execute(interaction) {
 
         if (interaction.customId === 'select_task_category') sel.category = interaction.values[0];
         if (interaction.customId === 'select_task_priority') sel.priority = interaction.values[0];
-        sel.expiresAt = Date.now() + PENDING_SELECTION_TTL; // renova ao interagir
+        sel.expiresAt = Date.now() + PENDING_SELECTION_TTL;
+
+        // Reconstrói os menus sempre mostrando a opção selecionada
+        const { StringSelectMenuBuilder, StringSelectMenuOptionBuilder } = await import('discord.js');
+
+        const categorySelect = new StringSelectMenuBuilder();
+        categorySelect.setCustomId('select_task_category');
+        categorySelect.setPlaceholder(sel.category ? CATEGORIES[sel.category]?.label ?? sel.category : 'Selecione a categoria...');
+        categorySelect.addOptions(
+            new StringSelectMenuOptionBuilder().setLabel('🚛 Logística').setDescription('Transporte e suprimentos').setValue('logistics').setDefault(sel.category === 'logistics'),
+            new StringSelectMenuOptionBuilder().setLabel('🏭 Produção').setDescription('Fábricas e munição').setValue('production').setDefault(sel.category === 'production'),
+        );
+
+        const prioritySelect = new StringSelectMenuBuilder();
+        prioritySelect.setCustomId('select_task_priority');
+        prioritySelect.setPlaceholder(sel.priority ? PRIORITY[sel.priority]?.label ?? sel.priority : 'Selecione a prioridade...');
+        prioritySelect.addOptions(
+            new StringSelectMenuOptionBuilder().setLabel('🟢 Baixa').setDescription('Pode ser feito quando possível').setValue('low').setDefault(sel.priority === 'low'),
+            new StringSelectMenuOptionBuilder().setLabel('🟡 Média').setDescription('Importante mas não urgente').setValue('medium').setDefault(sel.priority === 'medium'),
+            new StringSelectMenuOptionBuilder().setLabel('🔴 Alta').setDescription('Urgente, precisa de atenção imediata').setValue('high').setDefault(sel.priority === 'high'),
+        );
 
         if (sel.category && sel.priority) {
             const catInfo = CATEGORIES[sel.category] ?? { label: sel.category };
@@ -76,11 +96,28 @@ export async function execute(interaction) {
 
             return interaction.update({
                 embeds: [embed],
-                components: [new ActionRowBuilder().addComponents(continueBtn)],
+                components: [
+                    new ActionRowBuilder().addComponents(categorySelect),
+                    new ActionRowBuilder().addComponents(prioritySelect),
+                    new ActionRowBuilder().addComponents(continueBtn),
+                ],
             });
         }
 
-        return interaction.update({});
+        // Ainda falta selecionar um dos dois — atualiza os menus mostrando o que já foi escolhido
+        const embed = new EmbedBuilder()
+            .setTitle('📋  Nova Tarefa — Passo 1 de 2')
+            .setDescription('Selecione a **categoria** e a **prioridade** da tarefa abaixo.Depois clique em continuar para preencher os detalhes.')
+                .setColor(0xe67e22)
+                .setFooter({ text: 'Sua seleção expira em 5 minutos.' });
+
+        return interaction.update({
+            embeds: [embed],
+            components: [
+                new ActionRowBuilder().addComponents(categorySelect),
+                new ActionRowBuilder().addComponents(prioritySelect),
+            ],
+        });
     }
 
     // ── Botão: abrir modal (Step 2) ───────────────────────────────────────────
@@ -98,25 +135,92 @@ export async function execute(interaction) {
         titleInput.setCustomId('task_title');
         titleInput.setLabel('Título da tarefa');
         titleInput.setStyle(TextInputStyle.Short);
-        titleInput.setPlaceholder('Ex: Transportar caixas de munição para T12');
         titleInput.setRequired(true);
         titleInput.setMaxLength(80);
 
-        const descInput = new TextInputBuilder();
-        descInput.setCustomId('task_description');
-        descInput.setLabel('Descrição detalhada (opcional)');
-        descInput.setStyle(TextInputStyle.Paragraph);
-        descInput.setPlaceholder('Descreva a quantidade, localização, urgência e qualquer detalhe relevante...');
-        descInput.setRequired(false);
-        descInput.setMaxLength(500);
+        const deadlineInput = new TextInputBuilder();
+        deadlineInput.setCustomId('task_deadline');
+        deadlineInput.setLabel('Prazo (opcional) — ex: 2h, 30min, 1d');
+        deadlineInput.setStyle(TextInputStyle.Short);
+        deadlineInput.setPlaceholder('Ex: 2h  /  90min  /  1d  (deixe vazio para sem prazo)');
+        deadlineInput.setRequired(false);
+        deadlineInput.setMaxLength(10);
 
         const modal = new ModalBuilder();
         modal.setCustomId('modal_create_task');
-        modal.setTitle('Nova Tarefa — Detalhes');
-        modal.addComponents(
-            new ActionRowBuilder().addComponents(titleInput),
-            new ActionRowBuilder().addComponents(descInput),
-        );
+
+        if (sel.category === 'logistics') {
+            titleInput.setPlaceholder('Ex: Transportar munição para T12');
+
+            const cargoInput = new TextInputBuilder();
+            cargoInput.setCustomId('task_field1');
+            cargoInput.setLabel('Carga (quantidade e tipo)');
+            cargoInput.setStyle(TextInputStyle.Short);
+            cargoInput.setPlaceholder('Ex: 5 caixas de Soldier Supplies');
+            cargoInput.setRequired(true);
+            cargoInput.setMaxLength(100);
+
+            const routeInput = new TextInputBuilder();
+            routeInput.setCustomId('task_field2');
+            routeInput.setLabel('Origem → Destino');
+            routeInput.setStyle(TextInputStyle.Short);
+            routeInput.setPlaceholder('Ex: Depósito Stonecradle → Forward Base T12');
+            routeInput.setRequired(true);
+            routeInput.setMaxLength(150);
+
+            const obsInput = new TextInputBuilder();
+            obsInput.setCustomId('task_field3');
+            obsInput.setLabel('Observações (opcional)');
+            obsInput.setStyle(TextInputStyle.Paragraph);
+            obsInput.setPlaceholder('Rota preferida, perigos no caminho, veículo necessário...');
+            obsInput.setRequired(false);
+            obsInput.setMaxLength(300);
+
+            modal.setTitle('🚛  Logística — Detalhes');
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(titleInput),
+                new ActionRowBuilder().addComponents(cargoInput),
+                new ActionRowBuilder().addComponents(routeInput),
+                new ActionRowBuilder().addComponents(obsInput),
+                new ActionRowBuilder().addComponents(deadlineInput),
+            );
+
+        } else if (sel.category === 'production') {
+            titleInput.setPlaceholder('Ex: Produzir granadas Tremola');
+
+            const itemInput = new TextInputBuilder();
+            itemInput.setCustomId('task_field1');
+            itemInput.setLabel('Item e quantidade');
+            itemInput.setStyle(TextInputStyle.Short);
+            itemInput.setPlaceholder('Ex: 200x Tremola Grenade');
+            itemInput.setRequired(true);
+            itemInput.setMaxLength(100);
+
+            const factoryInput = new TextInputBuilder();
+            factoryInput.setCustomId('task_field2');
+            factoryInput.setLabel('Fábrica / Local de produção');
+            factoryInput.setStyle(TextInputStyle.Short);
+            factoryInput.setPlaceholder('Ex: Factory Town — Small Arms Factory');
+            factoryInput.setRequired(true);
+            factoryInput.setMaxLength(150);
+
+            const obsInput = new TextInputBuilder();
+            obsInput.setCustomId('task_field3');
+            obsInput.setLabel('Observações (opcional)');
+            obsInput.setStyle(TextInputStyle.Paragraph);
+            obsInput.setPlaceholder('Materiais disponíveis, prioridade de entrega, destino...');
+            obsInput.setRequired(false);
+            obsInput.setMaxLength(300);
+
+            modal.setTitle('🏭  Produção — Detalhes');
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(titleInput),
+                new ActionRowBuilder().addComponents(itemInput),
+                new ActionRowBuilder().addComponents(factoryInput),
+                new ActionRowBuilder().addComponents(obsInput),
+                new ActionRowBuilder().addComponents(deadlineInput),
+            );
+        }
 
         await interaction.showModal(modal);
         await interaction.deleteReply().catch(() => { });
@@ -134,7 +238,36 @@ export async function execute(interaction) {
         }
 
         const title = interaction.fields.getTextInputValue('task_title').trim();
-        const desc = interaction.fields.getTextInputValue('task_description').trim();
+        const deadlineRaw = interaction.fields.getTextInputValue('task_deadline').trim();
+
+        // Lê campos específicos por categoria e monta descrição estruturada
+        const field1 = interaction.fields.getTextInputValue('task_field1').trim();
+        const field2 = interaction.fields.getTextInputValue('task_field2').trim();
+        const field3 = interaction.fields.getTextInputValue('task_field3').trim();
+
+        let desc = '';
+        if (sel.category === 'logistics') {
+            desc = `**📦 Carga:** ${field1}\n**🗺️ Rota:** ${field2}`;
+            if (field3) desc += `\n**📝 Obs:** ${field3}`;
+        } else if (sel.category === 'production') {
+            desc = `**🔧 Item:** ${field1}\n**🏭 Fábrica:** ${field2}`;
+            if (field3) desc += `\n**📝 Obs:** ${field3}`;
+        }
+
+        // Converte prazo para timestamp Unix
+        let deadlineAt = null;
+        if (deadlineRaw) {
+            const match = deadlineRaw.match(/^(\d+)\s*(min|h|d)$/i);
+            if (!match) {
+                return interaction.editReply('⚠️ Formato de prazo inválido. Use: `2h`, `90min` ou `1d`.');
+            }
+            const value = parseInt(match[1]);
+            const unit = match[2].toLowerCase();
+            const ms = unit === 'min' ? value * 60_000
+                : unit === 'h' ? value * 3_600_000
+                    : value * 86_400_000;
+            deadlineAt = new Date(Date.now() + ms);
+        }
 
         const db = getDb();
 
@@ -162,6 +295,7 @@ export async function execute(interaction) {
                 createdBy: interaction.user.id,
                 createdAt: new Date(),
                 takenBy: null,
+                deadlineAt: deadlineAt,
                 discordMessageId: null,
                 discordThreadId: null,
             });
@@ -242,6 +376,7 @@ export async function execute(interaction) {
                 });
                 await removeFromApproval(interaction.client, taskId);
                 await refreshSingleTask(interaction.client, taskId);
+
             } else {
                 await ref.update({ status: 'rejected', rejectedBy: interaction.user.id, rejectedAt: new Date() });
                 await interaction.reply({
@@ -255,6 +390,7 @@ export async function execute(interaction) {
                     flags: 64,
                 });
                 await removeFromApproval(interaction.client, taskId);
+
             }
 
             return;

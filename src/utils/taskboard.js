@@ -185,8 +185,35 @@ export async function createTaskThread(client, taskId, takenByUserId) {
     // Persiste threadId no Firestore
     await db.collection('tasks').doc(taskId).update({ discordThreadId: thread.id }).catch(() => { });
 
-    // Agenda lembrete
+    // Agenda lembrete de inatividade
     scheduleReminder(client, taskId, takenByUserId, TASK_REMINDER_MS);
+
+    // Agenda lembrete de prazo (avisa 30 min antes se houver prazo)
+    if (task.deadlineAt) {
+        const deadlineDate = task.deadlineAt?.toDate ? task.deadlineAt.toDate() : new Date(task.deadlineAt);
+        const msUntilWarning = deadlineDate.getTime() - Date.now() - 30 * 60_000;
+        if (msUntilWarning > 0) {
+            setTimeout(async () => {
+                const cached2 = messageCache.get(taskId);
+                if (!cached2?.threadId) return;
+                const db2 = getDb();
+                const doc2 = await db2.collection('tasks').doc(taskId).get().catch(() => null);
+                if (!doc2?.exists || doc2.data().status !== 'taken') return;
+                const thread2 = await client.channels.fetch(cached2.threadId).catch(() => null);
+                if (!thread2) return;
+                const unix = Math.floor(deadlineDate.getTime() / 1000);
+                await thread2.send({
+                    embeds: [
+                        new EmbedBuilder()
+                            .setColor(0xe74c3c)
+                            .setTitle('⚠️  Prazo se aproximando!')
+                            .setDescription(`<@${takenByUserId}>, o prazo desta tarefa expira <t:${unix}:R>!Conclua logo ou avise o regimento se precisar de ajuda.`)
+                            .setTimestamp(),
+                    ],
+                }).catch(() => { });
+            }, msUntilWarning);
+        }
+    }
 }
 
 /** Manda uma mensagem de status no tópico da tarefa */
@@ -269,6 +296,21 @@ function buildTaskMessage(task) {
 
     if (task.takenBy) {
         embed.addFields({ name: '🪖  Responsável', value: `<@${task.takenBy}>`, inline: true });
+    }
+
+    if (task.deadlineAt) {
+        const deadlineDate = task.deadlineAt?.toDate ? task.deadlineAt.toDate() : new Date(task.deadlineAt);
+        const unix = Math.floor(deadlineDate.getTime() / 1000);
+        const now = Date.now();
+        const expired = deadlineDate.getTime() < now;
+        embed.addFields({
+            name: expired ? '🔴  Prazo EXPIRADO' : '⏳  Prazo',
+            value: `<t:${unix}:R> (<t:${unix}:f>)`,
+            inline: false,
+        });
+        if (expired && task.status === 'taken') {
+            embed.setColor(0xe74c3c); // vermelho se expirou e ainda em andamento
+        }
     }
 
     const buttons = buildButtons(task);

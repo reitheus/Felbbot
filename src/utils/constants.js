@@ -37,4 +37,8 @@ export function isLeader(member) {
     const leaderIds = process.env.LEADER_ROLE_IDS?.split(',').map(s => s.trim()) ?? [];
     return leaderIds.some(id => member.roles.cache.has(id));
 }
-
+//verifica se é da staff
+export function isStaff(member) {
+    const staffIds = process.env.STAFF_ROLE_IDS?.split(',').map(s => s.trim()) ?? [];
+    return staffIds.some(id => member.roles.cache.has(id));
+}
