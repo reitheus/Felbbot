@@ -9,7 +9,7 @@ Bot de gerenciamento de tarefas para regimentos de Foxhole no Discord.
 - 📋 **Taskboard automático** em canal dedicado com embeds e botões
 - 📝 **Formulário interativo** para criar tarefas (modal no Discord)
 - ✅ **Fluxo de aprovação**: Aberta → Aprovada (líder) → Em andamento → Concluída
-- 🗂️ **Categorias**: Logística e Produção
+- 🗂️ **Categorias**: Logística, Produção, coleta, reconhecimeto e filas
 - 🔥 **Firebase Firestore** como banco de dados (gratuito, sem manutenção)
 
 ---
@@ -53,6 +53,7 @@ Edite o `.env` com:
 | `GUILD_ID` | No Discord, clique com botão direito no servidor → Copiar ID do servidor |
 | `TASKBOARD_CHANNEL_ID` | Clique com botão direito no canal taskboard → Copiar ID do canal |
 | `LEADER_ROLE_IDS` | Configurações do servidor → Cargos → clique direito no cargo de líder → Copiar ID |
+| `STAFF_ROLE_IDS` | Cargo para criação de tarefas
 | `FIREBASE_SERVICE_ACCOUNT` | Conteúdo completo do JSON da conta de serviço (em uma linha) |
 
 > **Dica:** Para colocar o JSON em uma linha, use: `cat serviceAccountKey.json | tr -d '\n'`
@@ -129,4 +130,3 @@ Para manter o bot online 24/7 sem custo:
 - **[Fly.io](https://fly.io)** — generoso tier gratuito, requer cartão de crédito
 
 > **Recomendação:** Railway é o mais simples. Suba o repositório no GitHub, conecte no Railway e configure as variáveis de ambiente lá.
-MTQ5NTUwNDcyNzkxMDI1MjYxNA.GNFNuW.6UH9oGoa3hE7K0QchAhsLMCXYSiL_GycAKwj28
