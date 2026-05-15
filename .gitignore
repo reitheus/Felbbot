@@ -366,3 +366,4 @@ FodyWeavers.xsd
 .gitattributes
 *.json
 .env
+tokenbot.txt
