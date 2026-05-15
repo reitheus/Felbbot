@@ -489,7 +489,7 @@ export async function execute(interaction) {
                         new EmbedBuilder()
                             .setColor(0x2ecc71)
                             .setTitle('✅  Tarefa aprovada!')
-                            .setDescription(`A tarefa **${task.title}** foi aprovada e já está disponível no taskboard.`)
+                            .setDescription(`A tarefa **${task.title}** foi aprovada e já está disponível no taskboard. Task ID: \'${taskId}\'`)
                             .setTimestamp(),
                     ],
                     flags: 64,
@@ -504,7 +504,7 @@ export async function execute(interaction) {
                         new EmbedBuilder()
                             .setColor(0xe74c3c)
                             .setTitle('🔴  Tarefa rejeitada')
-                            .setDescription(`A tarefa **${task.title}** foi rejeitada e removida da fila de aprovação.`)
+                            .setDescription(`A tarefa **${task.title}** foi rejeitada e removida da fila de aprovação. Task ID: \'${taskId}\'`)
                             .setTimestamp(),
                     ],
                     flags: 64,

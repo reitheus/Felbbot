@@ -207,9 +207,7 @@ export async function createTaskThread(client, taskId, takenByUserId) {
                         new EmbedBuilder()
                             .setColor(0xe74c3c)
                             .setTitle('⚠️  Prazo se aproximando!')
-                            .setDescription(`<@${takenByUserId}>, o prazo desta tarefa expira <t:${unix}:R>!
-
-Conclua logo ou avise o regimento se precisar de ajuda.`)
+                            .setDescription(`<@${takenByUserId}>, o prazo desta tarefa expira <t:${unix}:R>!Conclua logo ou avise o regimento se precisar de ajuda.`)
                             .setTimestamp(),
                     ],
                 }).catch(() => { });

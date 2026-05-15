@@ -45,7 +45,8 @@ export const data = new SlashCommandBuilder()
             .addIntegerOption(opt =>
                 opt.setName('quantidade').setDescription('Quantas tarefas mostrar (padrão: 10)').setMinValue(1).setMaxValue(25),
             ),
-    )
+)
+    //mudar o nome stats
     .addSubcommand(sub =>
         sub.setName('stats').setDescription('Estatísticas gerais do regimento'),
     )
@@ -132,6 +133,7 @@ export async function execute(interaction) {
     }
 
     // ── /task status ─────────────────────────────────────────────────────────
+
     if (sub === 'status') {
         const { getDb } = await import('../utils/firebase.js');
         const id = interaction.options.getString('id');
@@ -177,19 +179,29 @@ export async function execute(interaction) {
         const limit = interaction.options.getInteger('quantidade') ?? 10;
         const db = getDb();
 
-        await interaction.deferReply({ flags: 64 });
+        await interaction.deferReply();
 
-        const snap = await db.collection('tasks').where('status', '==', 'done').orderBy('doneAt', 'desc').limit(limit).get()
+        // Busca sem orderBy para evitar necessidade de índice composto
+        const snap = await db.collection('tasks').where('status', '==', 'done').limit(50).get()
             .catch(() => null);
 
         if (!snap || snap.empty) {
             return interaction.editReply('Nenhuma tarefa concluída ainda. O regimento precisa trabalhar mais! 🪖');
         }
 
-        const fields = snap.docs.map(d => {
+        // Ordena localmente por doneAt (mais recente primeiro) e limita
+        const sorted = snap.docs
+            .sort((a, b) => {
+                const aTime = a.data().doneAt?.toDate?.()?.getTime() ?? 0;
+                const bTime = b.data().doneAt?.toDate?.()?.getTime() ?? 0;
+                return bTime - aTime;
+            })
+            .slice(0, limit);
+
+        const fields = sorted.map(d => {
             const t = d.data();
             const cat = CATEGORIES[t.category]?.label ?? t.category;
-            const doneAt = t.doneAt?.toDate ? `<t:${Math.floor(t.doneAt.toDate().getTime() / 1000)}:R>` : '';
+            const doneAt = t.doneAt?.toDate ? `<t:${Math.floor(t.doneAt.toDate().getTime() / 1000)}:R>` : '_data desconhecida_';
             return {
                 name: `${cat} — ${t.title}`,
                 value: `🎖️ <@${t.doneBy}> ${doneAt}`,
@@ -206,12 +218,14 @@ export async function execute(interaction) {
         return interaction.editReply({ embeds: [embed] });
     }
 
-    // ── /task stats ──────────────────────────────────────────────────────────
+
+    /* ── /task stats ──────────────────────────────────────────────────────────
+    mudar nome do comando*/
     if (sub === 'stats') {
         const { getDb } = await import('../utils/firebase.js');
         const db = getDb();
 
-        await interaction.deferReply({ flags: 64 });
+        await interaction.deferReply();
 
         const [allSnap, doneSnap, takenSnap, openSnap] = await Promise.all([
             db.collection('tasks').get(),
