@@ -148,6 +148,18 @@ export async function createTaskThread(client, taskId, takenByUserId) {
         autoArchiveDuration: 1440,
     });
 
+    await msg.edit({
+        content: "",
+        embeds: [
+            new EmbedBuilder()
+                .setColor(0x3498db)
+                .setTitle('🪖  Tarefa assumida!')
+                .setDescription(`<@${takenByUserId}> assumiu a tarefa **${task.title}**.\nUm tópico foi criado para acompanhamento — use-o para atualizações e coordenação com os membros.`)
+                .setTimestamp(),
+        ],
+        components: []
+    });
+
     const doneBtn = new ButtonBuilder();
     doneBtn.setCustomId(`task_done_${taskId}`);
     doneBtn.setLabel('Marcar como concluída');
