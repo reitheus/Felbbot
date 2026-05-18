@@ -367,3 +367,4 @@ FodyWeavers.xsd
 *.json
 .env
 tokenbot.txt
+/.env.Felbserve
