@@ -492,7 +492,6 @@ export async function execute(interaction) {
                             .setDescription(`A tarefa **${task.title}** foi aprovada e já está disponível no taskboard. Task ID: \'${taskId}\'`)
                             .setTimestamp(),
                     ],
-                    flags: 64,
                 });
                 await removeFromApproval(interaction.client, taskId);
                 await refreshSingleTask(interaction.client, taskId);
@@ -507,7 +506,6 @@ export async function execute(interaction) {
                             .setDescription(`A tarefa **${task.title}** foi rejeitada e removida da fila de aprovação. Task ID: \'${taskId}\'`)
                             .setTimestamp(),
                     ],
-                    flags: 64,
                 });
                 await removeFromApproval(interaction.client, taskId);
 
