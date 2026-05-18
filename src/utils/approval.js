@@ -43,7 +43,7 @@ export async function sendToApproval(client, task) {
     rejectBtn.setCustomId(`task_reject_${task.id}`);
     rejectBtn.setLabel('Rejeitar');
     rejectBtn.setStyle(ButtonStyle.Danger);
-    rejectBtn.setEmoji('❌');
+    rejectBtn.setEmoji('⛔');
 
     const row = new ActionRowBuilder().addComponents(approveBtn, rejectBtn);
 

@@ -503,7 +503,7 @@ export async function execute(interaction) {
                     embeds: [
                         new EmbedBuilder()
                             .setColor(0xe74c3c)
-                            .setTitle('🔴  Tarefa rejeitada')
+                            .setTitle('⛔  Tarefa rejeitada')
                             .setDescription(`A tarefa **${task.title}** foi rejeitada e removida da fila de aprovação. Task ID: \'${taskId}\'`)
                             .setTimestamp(),
                     ],
@@ -542,16 +542,6 @@ export async function execute(interaction) {
             }
 
             await ref.update({ status: 'taken', takenBy: interaction.user.id, takenAt: new Date() });
-            await interaction.reply({
-                embeds: [
-                    new EmbedBuilder()
-                        .setColor(0x3498db)
-                        .setTitle('🪖  Tarefa assumida!')
-                        .setDescription(`Você assumiu a tarefa **${task.title}**.\nUm tópico foi criado para acompanhamento — use-o para atualizações e coordenação com os membros.`)
-                        .setTimestamp(),
-                ],
-                flags: 64,
-            });
             await refreshSingleTask(interaction.client, taskId);
             await createTaskThread(interaction.client, taskId, interaction.user.id);
             return;
