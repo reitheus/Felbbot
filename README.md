@@ -129,4 +129,3 @@ Para manter o bot online 24/7 sem custo:
 - **[Fly.io](https://fly.io)** — generoso tier gratuito, requer cartão de crédito
 
 > **Recomendação:** Railway é o mais simples. Suba o repositório no GitHub, conecte no Railway e configure as variáveis de ambiente lá.
-MTQ5NTUwNDcyNzkxMDI1MjYxNA.GNFNuW.6UH9oGoa3hE7K0QchAhsLMCXYSiL_GycAKwj28
