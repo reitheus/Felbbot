@@ -8,11 +8,11 @@ export const CATEGORIES = {
 };
 
 export const STATUS = {
-  open:      { label: '🟨 Aberta',      color: 0xf0a500 },
-  approved:  { label: '🟩 Aprovada',    color: 0x22c55e },
-  taken:     { label: '🔵 Em andamento',color: 0x3b82f6 },
-  done:      { label: '✅ Concluída',   color: 0x6b7280 },
-    rejected: { label: '⛔ Rejeitada',   color: 0xef4444 },
+    open: { label: '🟨 Aberta', color: 0xf0a500 },
+    approved: { label: '🟩 Aprovada', color: 0x22c55e },
+    taken: { label: '🔵 Em andamento', color: 0x3b82f6 },
+    done: { label: '✅ Concluída', color: 0x6b7280 },
+    rejected: { label: '⛔ Rejeitada', color: 0xef4444 },
 };
 
 export const PRIORITY = {

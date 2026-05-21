@@ -1,14 +1,14 @@
 import {
-    SlashCommandBuilder,
-    ModalBuilder,
-    TextInputBuilder,
-    TextInputStyle,
     ActionRowBuilder,
+    ContainerBuilder,
+    MessageFlags,
+    SeparatorBuilder,
+    SeparatorSpacingSize,
+    SlashCommandBuilder,
     StringSelectMenuBuilder,
-    StringSelectMenuOptionBuilder,
-    EmbedBuilder,
-} from 'discord.js';
-import { CATEGORIES, PRIORITY, STATUS, MAX_TASKS_PER_USER } from '../utils/constants.js';
+    TextDisplayBuilder,
+} from "discord.js";
+import { CATEGORIES, PRIORITY, STATUS } from '../utils/constants.js';
 
 export const data = new SlashCommandBuilder()
     .setName('task')
@@ -45,8 +45,7 @@ export const data = new SlashCommandBuilder()
             .addIntegerOption(opt =>
                 opt.setName('quantidade').setDescription('Quantas tarefas mostrar (padrão: 10)').setMinValue(1).setMaxValue(25),
             ),
-)
-    //mudar o nome stats
+    )
     .addSubcommand(sub =>
         sub.setName('stats').setDescription('Estatísticas gerais do regimento'),
     )
@@ -64,39 +63,46 @@ export async function execute(interaction) {
 
     // ── /task criar ──────────────────────────────────────────────────────────
     if (sub === 'criar') {
-        const categorySelect = new StringSelectMenuBuilder();
-        categorySelect.setCustomId('select_task_category');
-        categorySelect.setPlaceholder('Selecione a categoria...');
-        categorySelect.addOptions(
-            new StringSelectMenuOptionBuilder().setLabel('🚛 Logística').setDescription('Transporte e suprimentos').setValue('logistics'),
-            new StringSelectMenuOptionBuilder().setLabel('🏭 Produção').setDescription('Fábricas e munição').setValue('production'),
-            new StringSelectMenuOptionBuilder().setLabel('🔍 Reconhecimento').setDescription('Scouting e mapeamento de inimigos').setValue('recon'),
-            new StringSelectMenuOptionBuilder().setLabel('📋 Fila de Fábrica').setDescription('Gerenciar filas e prioridades de produção').setValue('queue'),
-            new StringSelectMenuOptionBuilder().setLabel('⛏️ Coleta').setDescription('Coletar recursos e materiais brutos').setValue('gathering'),
-        );
+        const categorySelect = new StringSelectMenuBuilder()
+            .setCustomId('select_task_category')
+            .setPlaceholder('Selecione a categoria...')
+            .addOptions([
+                { label: '🚛 Logística', description: 'Transporte e suprimentos', value: 'logistics' },
+                { label: '🏭 Produção', description: 'Fábricas e munição', value: 'production' },
+                { label: '🔍 Reconhecimento', description: 'Scouting e mapeamento de inimigos', value: 'recon' },
+                { label: '📋 Fila de Fábrica', description: 'Gerenciar filas e prioridades de produção', value: 'queue' },
+                { label: '⛏️ Coleta', description: 'Coletar recursos e materiais brutos', value: 'gathering' },
+            ]);
 
-        const prioritySelect = new StringSelectMenuBuilder();
-        prioritySelect.setCustomId('select_task_priority');
-        prioritySelect.setPlaceholder('Selecione a prioridade...');
-        prioritySelect.addOptions(
-            new StringSelectMenuOptionBuilder().setLabel('🟢 Baixa').setDescription('Pode ser feito quando possível').setValue('low'),
-            new StringSelectMenuOptionBuilder().setLabel('🟡 Média').setDescription('Importante mas não urgente').setValue('medium'),
-            new StringSelectMenuOptionBuilder().setLabel('🔴 Alta').setDescription('Urgente, precisa de atenção imediata').setValue('high'),
-        );
+        const prioritySelect = new StringSelectMenuBuilder()
+            .setCustomId('select_task_priority')
+            .setPlaceholder('Selecione a prioridade...')
+            .addOptions([
+                { label: '🟢 Baixa', description: 'Pode ser feito quando possível', value: 'low' },
+                { label: '🟡 Média', description: 'Importante mas não urgente', value: 'medium' },
+                { label: '🔴 Alta', description: 'Urgente, precisa de atenção imediata', value: 'high' },
+            ]);
 
-        const embed = new EmbedBuilder()
-            .setTitle('📋  Nova Tarefa — Passo 1 de 2')
-            .setDescription('Selecione a **categoria** e a **prioridade** da tarefa abaixo.\nDepois clique em continuar para preencher os detalhes.')
-            .setColor(0xe67e22)
-            .setFooter({ text: `Sua seleção expira em 5 minutos.` });
+        const container = new ContainerBuilder()
+            .setAccentColor(0xe67e22)
+            .addTextDisplayComponents(
+                new TextDisplayBuilder().setContent('## 📋  Nova Tarefa'),
+                new TextDisplayBuilder().setContent(
+                    'Selecione a **categoria** e a **prioridade** da tarefa.\n' +
+                    'O botão para continuar aparecerá após selecionar as duas opções.\n' +
+                    '-# Sua seleção expira em 5 minutos.'
+                ),
+            )
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+            .addTextDisplayComponents(
+                new TextDisplayBuilder().setContent('⬜  **Categoria:** _não selecionada_\n⬜  **Prioridade:** _não selecionada_'),
+            )
+            .addActionRowComponents(new ActionRowBuilder().addComponents(categorySelect))
+            .addActionRowComponents(new ActionRowBuilder().addComponents(prioritySelect));
 
         return interaction.reply({
-            embeds: [embed],
-            components: [
-                new ActionRowBuilder().addComponents(categorySelect),
-                new ActionRowBuilder().addComponents(prioritySelect),
-            ],
-            flags: 64,
+            flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral],
+            components: [container],
         });
     }
 
@@ -106,43 +112,56 @@ export async function execute(interaction) {
         const status = interaction.options.getString('status') ?? 'open';
         const db = getDb();
 
-        await interaction.deferReply({ flags: 64 });
+        await interaction.deferReply();
 
         const snap = await db.collection('tasks').where('status', '==', status).orderBy('createdAt', 'desc').limit(10).get()
             .catch(() => null);
 
         if (!snap || snap.empty) {
-            return interaction.editReply({ content: `Nenhuma tarefa com status **${STATUS[status]?.label ?? status}** encontrada.` });
+            return interaction.editReply({
+                flags: MessageFlags.IsComponentsV2,
+                components: [
+                    new ContainerBuilder()
+                        .setAccentColor(0x6b7280)
+                        .addTextDisplayComponents(
+                            new TextDisplayBuilder().setContent(`## ${STATUS[status]?.label ?? status}`),
+                            new TextDisplayBuilder().setContent('Nenhuma tarefa encontrada com este status.'),
+                        ),
+                ],
+            });
         }
 
-        const fields = snap.docs.map(d => {
+        const lines = snap.docs.map(d => {
             const t = d.data();
             const cat = CATEGORIES[t.category]?.label ?? t.category;
             const pri = PRIORITY[t.priority]?.label ?? t.priority;
-            const responsible = t.takenBy ? ` • 🪖 <@${t.takenBy}>` : '';
-            return { name: `${cat} — ${t.title}`, value: `${pri}${responsible} • \`${d.id}\``, inline: false };
+            const resp = t.takenBy ? `  •  🪖 <@${t.takenBy}>` : '';
+            return `**${t.title}**\n${cat}  •  ${pri}${resp}\n-# \`${d.id}\``;
+        }).join('\n\n');
+
+        return interaction.editReply({
+            flags: MessageFlags.IsComponentsV2,
+            components: [
+                new ContainerBuilder()
+                    .setAccentColor(STATUS[status]?.color ?? 0xffffff)
+                    .addTextDisplayComponents(
+                        new TextDisplayBuilder().setContent(`## ${STATUS[status]?.label ?? status} — ${snap.size} tarefa(s)`),
+                    )
+                    .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+                    .addTextDisplayComponents(new TextDisplayBuilder().setContent(lines)),
+            ],
         });
-
-        const embed = new EmbedBuilder()
-            .setTitle(`${STATUS[status]?.label ?? status} — ${snap.size} tarefa(s)`)
-            .setColor(STATUS[status]?.color ?? 0xffffff)
-            .addFields(fields)
-            .setTimestamp();
-
-        return interaction.editReply({ embeds: [embed] });
     }
 
     // ── /task status ─────────────────────────────────────────────────────────
-
     if (sub === 'status') {
         const { getDb } = await import('../utils/firebase.js');
         const id = interaction.options.getString('id');
         const db = getDb();
 
-        await interaction.deferReply({ flags: 64 });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         const doc = await db.collection('tasks').doc(id).get().catch(() => null);
-
         if (!doc?.exists) {
             return interaction.editReply('❌ Tarefa não encontrada. Verifique o ID.');
         }
@@ -152,25 +171,48 @@ export async function execute(interaction) {
         const priInfo = PRIORITY[t.priority] ?? { label: t.priority };
         const statusInfo = STATUS[t.status] ?? { label: t.status, color: 0xffffff };
 
-        const embed = new EmbedBuilder()
-            .setColor(statusInfo.color)
-            .setAuthor({ name: catInfo.label })
-            .setTitle(t.title)
-            .addFields(
-                { name: '📊  Status', value: statusInfo.label, inline: true },
-                { name: '⚡  Prioridade', value: priInfo.label, inline: true },
-                { name: '👤  Criado por', value: `<@${t.createdBy}>`, inline: true },
-                { name: '📝  Descrição', value: t.description || '_Sem descrição_', inline: false },
+        let deadlineText = '';
+        if (t.deadlineAt) {
+            const unix = Math.floor((t.deadlineAt?.toDate ? t.deadlineAt.toDate() : new Date(t.deadlineAt)).getTime() / 1000);
+            const expired = (t.deadlineAt?.toDate ? t.deadlineAt.toDate() : new Date(t.deadlineAt)).getTime() < Date.now();
+            deadlineText = `\n${expired ? '🔴 **Prazo EXPIRADO**' : '⏳ **Prazo**'} — <t:${unix}:R>`;
+        }
+
+        const extraFields = [];
+        if (t.takenBy) extraFields.push(`🪖 **Responsável:** <@${t.takenBy}>`);
+        if (t.approvedBy) extraFields.push(`✅ **Aprovado por:** <@${t.approvedBy}>`);
+        if (t.doneBy) extraFields.push(`🎖️ **Concluído por:** <@${t.doneBy}>`);
+        if (t.rejectedBy) extraFields.push(`⛔ **Rejeitado por:** <@${t.rejectedBy}>`);
+
+        const metaLine = `${statusInfo.label}  •  ${priInfo.label}  •  👤 <@${t.createdBy}>${deadlineText}`;
+
+        const container = new ContainerBuilder()
+            .setAccentColor(statusInfo.color)
+            .addTextDisplayComponents(
+                new TextDisplayBuilder().setContent(`**${catInfo.label}**`),
+                new TextDisplayBuilder().setContent(`## ${t.title}`),
             )
-            .setFooter({ text: `ID: ${doc.id}` })
-            .setTimestamp(t.createdAt?.toDate?.() ?? new Date());
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+            .addTextDisplayComponents(
+                new TextDisplayBuilder().setContent(metaLine),
+                new TextDisplayBuilder().setContent(t.description || '_Sem descrição_'),
+            );
 
-        if (t.takenBy) embed.addFields({ name: '🪖  Responsável', value: `<@${t.takenBy}>`, inline: true });
-        if (t.approvedBy) embed.addFields({ name: '✅  Aprovado por', value: `<@${t.approvedBy}>`, inline: true });
-        if (t.doneBy) embed.addFields({ name: '🎖️  Concluído por', value: `<@${t.doneBy}>`, inline: true });
-        if (t.rejectedBy) embed.addFields({ name: '🟥  Rejeitado por', value: `<@${t.rejectedBy}>`, inline: true });
+        if (extraFields.length) {
+            container.addSeparatorComponents(new SeparatorBuilder().setDivider(false).setSpacing(SeparatorSpacingSize.Small));
+            container.addTextDisplayComponents(
+                new TextDisplayBuilder().setContent(extraFields.join('\n')),
+            );
+        }
 
-        return interaction.editReply({ embeds: [embed] });
+        container.addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(`-# ID: ${doc.id}  •  FELB Regiment`),
+        );
+
+        return interaction.editReply({
+            flags: MessageFlags.IsComponentsV2,
+            components: [container],
+        });
     }
 
     // ── /task historico ──────────────────────────────────────────────────────
@@ -181,46 +223,38 @@ export async function execute(interaction) {
 
         await interaction.deferReply();
 
-        // Busca sem orderBy para evitar necessidade de índice composto
-        const snap = await db.collection('tasks').where('status', '==', 'done').limit(50).get()
-            .catch(() => null);
+        const snap = await db.collection('tasks').where('status', '==', 'done').limit(50).get().catch(() => null);
 
         if (!snap || snap.empty) {
             return interaction.editReply('Nenhuma tarefa concluída ainda. O regimento precisa trabalhar mais! 🪖');
         }
 
-        // Ordena localmente por doneAt (mais recente primeiro) e limita
         const sorted = snap.docs
-            .sort((a, b) => {
-                const aTime = a.data().doneAt?.toDate?.()?.getTime() ?? 0;
-                const bTime = b.data().doneAt?.toDate?.()?.getTime() ?? 0;
-                return bTime - aTime;
-            })
+            .sort((a, b) => (b.data().doneAt?.toDate?.()?.getTime() ?? 0) - (a.data().doneAt?.toDate?.()?.getTime() ?? 0))
             .slice(0, limit);
 
-        const fields = sorted.map(d => {
+        const lines = sorted.map(d => {
             const t = d.data();
             const cat = CATEGORIES[t.category]?.label ?? t.category;
             const doneAt = t.doneAt?.toDate ? `<t:${Math.floor(t.doneAt.toDate().getTime() / 1000)}:R>` : '_data desconhecida_';
-            return {
-                name: `${cat} — ${t.title}`,
-                value: `🎖️ <@${t.doneBy}> ${doneAt}`,
-                inline: false,
-            };
+            return `**${t.title}**\n${cat}  •  🎖️ <@${t.doneBy}> ${doneAt}`;
+        }).join('\n\n');
+
+        return interaction.editReply({
+            flags: MessageFlags.IsComponentsV2,
+            components: [
+                new ContainerBuilder()
+                    .setAccentColor(0x95a5a6)
+                    .addTextDisplayComponents(
+                        new TextDisplayBuilder().setContent(`## 🎖️  Histórico — Últimas ${sorted.length} concluídas`),
+                    )
+                    .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+                    .addTextDisplayComponents(new TextDisplayBuilder().setContent(lines)),
+            ],
         });
-
-        const embed = new EmbedBuilder()
-            .setTitle(`🎖️  Histórico — Últimas ${snap.size} tarefas concluídas`)
-            .setColor(0x95a5a6)
-            .addFields(fields)
-            .setTimestamp();
-
-        return interaction.editReply({ embeds: [embed] });
     }
 
-
-    /* ── /task stats ──────────────────────────────────────────────────────────
-    mudar nome do comando*/
+    // ── /task stats ──────────────────────────────────────────────────────────
     if (sub === 'stats') {
         const { getDb } = await import('../utils/firebase.js');
         const db = getDb();
@@ -234,11 +268,8 @@ export async function execute(interaction) {
             db.collection('tasks').where('status', '==', 'approved').get(),
         ]).catch(() => [null, null, null, null]);
 
-        if (!allSnap) {
-            return interaction.editReply('❌ Erro ao buscar estatísticas. Tente novamente.');
-        }
+        if (!allSnap) return interaction.editReply('❌ Erro ao buscar estatísticas.');
 
-        // Top contribuidores
         const contributions = {};
         doneSnap.docs.forEach(d => {
             const uid = d.data().doneBy;
@@ -246,12 +277,10 @@ export async function execute(interaction) {
         });
 
         const top = Object.entries(contributions)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 5)
-            .map(([uid, count], i) => `${['🥇', '🥈', '🥉', '4️⃣', '5️⃣'][i]} <@${uid}> — **${count}** tarefa(s)`)
+            .sort((a, b) => b[1] - a[1]).slice(0, 5)
+            .map(([uid, count], i) => `${['🥇', '🥈', '🥉', '4️⃣', '5️⃣'][i]} <@${uid}> — **${count}**`)
             .join('\n') || '_Nenhuma tarefa concluída ainda._';
 
-        // Stats por categoria
         const byCategory = {};
         doneSnap.docs.forEach(d => {
             const cat = d.data().category;
@@ -260,30 +289,39 @@ export async function execute(interaction) {
 
         const catStats = Object.entries(byCategory)
             .map(([cat, count]) => `${CATEGORIES[cat]?.label ?? cat}: **${count}**`)
-            .join(' • ') || '_Sem dados_';
+            .join('  •  ') || '_Sem dados_';
 
-        const embed = new EmbedBuilder()
-            .setTitle('📊  Estatísticas do Regimento')
-            .setColor(0x3498db)
-            .addFields(
-                { name: '📋  Total de tarefas', value: `**${allSnap.size}**`, inline: true },
-                { name: '✅  Concluídas', value: `**${doneSnap.size}**`, inline: true },
-                { name: '🔵  Em andamento', value: `**${takenSnap.size}**`, inline: true },
-                { name: '🟢  Disponíveis', value: `**${openSnap.size}**`, inline: true },
-                { name: '📦  Por categoria', value: catStats, inline: false },
-                { name: '🏆  Top contribuidores', value: top, inline: false },
-            )
-            .setFooter({ text: 'FELB Regiment  •  Foxhole' })
-            .setTimestamp();
-
-        return interaction.editReply({ embeds: [embed] });
+        return interaction.editReply({
+            flags: MessageFlags.IsComponentsV2,
+            components: [
+                new ContainerBuilder()
+                    .setAccentColor(0x3498db)
+                    .addTextDisplayComponents(
+                        new TextDisplayBuilder().setContent('## 📊  Estatísticas do Regimento'),
+                    )
+                    .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+                    .addTextDisplayComponents(
+                        new TextDisplayBuilder().setContent(
+                            `📋 **Total:** ${allSnap.size}  •  ` +
+                            `✅ **Concluídas:** ${doneSnap.size}  •  ` +
+                            `🔵 **Em andamento:** ${takenSnap.size}  •  ` +
+                            `🟩 **Disponíveis:** ${openSnap.size}`
+                        ),
+                        new TextDisplayBuilder().setContent(`**📦 Por categoria:**\n${catStats}`),
+                        new TextDisplayBuilder().setContent(`**🏆 Top contribuidores:**\n${top}`),
+                    )
+                    .addTextDisplayComponents(
+                        new TextDisplayBuilder().setContent('-# FELB Regiment  •  Foxhole'),
+                    ),
+            ],
+        });
     }
 
     // ── /task cancelar ───────────────────────────────────────────────────────
     if (sub === 'cancelar') {
         const { isLeader } = await import('../utils/constants.js');
         if (!isLeader(interaction.member)) {
-            return interaction.reply({ content: '🔒 Apenas líderes podem cancelar tarefas.', flags: 64 });
+            return interaction.reply({ content: '🔒 Apenas líderes podem cancelar tarefas.', flags: MessageFlags.Ephemeral });
         }
 
         const id = interaction.options.getString('id');
@@ -293,7 +331,7 @@ export async function execute(interaction) {
         const doc = await ref.get().catch(() => null);
 
         if (!doc?.exists) {
-            return interaction.reply({ content: `❌ Tarefa \`${id}\` não encontrada.`, flags: 64 });
+            return interaction.reply({ content: `❌ Tarefa \`${id}\` não encontrada.`, flags: MessageFlags.Ephemeral });
         }
 
         await ref.update({ status: 'rejected', rejectedBy: interaction.user.id, rejectedAt: new Date() });
@@ -303,6 +341,16 @@ export async function execute(interaction) {
         await removeFromApproval(interaction.client, id);
         await refreshSingleTask(interaction.client, id);
 
-        return interaction.reply({ content: `✅ Tarefa \`${id}\` cancelada.`, flags: 64 });
+        return interaction.reply({
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+            components: [
+                new ContainerBuilder()
+                    .setAccentColor(0xe74c3c)
+                    .addTextDisplayComponents(
+                        new TextDisplayBuilder().setContent('## ⛔  Tarefa cancelada'),
+                        new TextDisplayBuilder().setContent(`A tarefa \`${id}\` foi cancelada com sucesso.`),
+                    ),
+            ],
+        });
     }
 }

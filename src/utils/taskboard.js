@@ -1,11 +1,18 @@
-import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import {
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonStyle,
+    ContainerBuilder,
+    MessageFlags,
+    SeparatorBuilder,
+    SeparatorSpacingSize,
+    TextDisplayBuilder,
+} from 'discord.js';
 import { getDb } from './firebase.js';
-import { CATEGORIES, STATUS, PRIORITY, TASK_REMINDER_MS } from './constants.js';
+import { CATEGORIES, PRIORITY, STATUS, TASK_REMINDER_MS } from './constants.js';
 
 // Cache local: taskId -> { messageId, threadId }
 const messageCache = new Map();
-
-// Timers de lembrete: taskId -> timeoutId
 const reminderTimers = new Map();
 
 export async function refreshTaskboard(client) {
@@ -39,34 +46,36 @@ export async function refreshTaskboard(client) {
             for (const m of botMsgs.values()) await m.delete().catch(() => { });
         }
         await channel.send({
-            embeds: [
-                new EmbedBuilder()
-                    .setTitle('📋  Taskboard do Regimento')
-                    .setDescription('> Nenhuma tarefa ativa no momento.\n> Use `/task criar` para adicionar uma!')
-                    .setColor(0x2c2f33)
-                    .setFooter({ text: 'FELB Regiment  •  Foxhole' })
-                    .setTimestamp(),
+            flags: MessageFlags.IsComponentsV2,
+            components: [
+                new ContainerBuilder()
+                    .setAccentColor(0x2c2f33)
+                    .addTextDisplayComponents(
+                        new TextDisplayBuilder().setContent('## 📋  Taskboard do Regimento'),
+                        new TextDisplayBuilder().setContent('> Nenhuma tarefa ativa no momento.\n> Use `/task criar` para adicionar uma!'),
+                    )
+                    .addSeparatorComponents(new SeparatorBuilder().setDivider(false).setSpacing(SeparatorSpacingSize.Small))
+                    .addTextDisplayComponents(new TextDisplayBuilder().setContent('-# FELB Regiment  •  Foxhole')),
             ],
         });
         return;
     }
 
     for (const task of activeTasks) {
-        const { embed, components } = buildTaskMessage(task);
+        const components = buildTaskMessage(task);
         const cached = messageCache.get(task.id);
 
         if (cached) {
             const msg = await channel.messages.fetch(cached.messageId).catch(() => null);
             if (msg) {
-                await msg.edit({ embeds: [embed], components }).catch(() => { });
+                await msg.edit({ flags: MessageFlags.IsComponentsV2, components }).catch(() => { });
                 continue;
             }
         }
 
-        const sent = await channel.send({ embeds: [embed], components });
+        const sent = await channel.send({ flags: MessageFlags.IsComponentsV2, components });
         messageCache.set(task.id, { messageId: sent.id, threadId: null });
 
-        // Restaura lembrete para tarefas em andamento ao reiniciar
         if (task.status === 'taken' && task.takenAt) {
             const elapsed = Date.now() - task.takenAt.toDate().getTime();
             const remaining = TASK_REMINDER_MS - elapsed;
@@ -75,7 +84,6 @@ export async function refreshTaskboard(client) {
     }
 }
 
-/** Atualiza apenas uma tarefa específica no taskboard */
 export async function refreshSingleTask(client, taskId) {
     const channelId = process.env.TASKBOARD_CHANNEL_ID;
     const channel = await client.channels.fetch(channelId).catch(() => null);
@@ -95,31 +103,26 @@ export async function refreshSingleTask(client, taskId) {
             messageCache.delete(taskId);
         }
         cancelReminder(taskId);
-
-        // Persiste remoção do messageId no Firestore
         await db.collection('tasks').doc(taskId).update({ discordMessageId: null, discordThreadId: null }).catch(() => { });
         return;
     }
 
-    const { embed, components } = buildTaskMessage(task);
+    const components = buildTaskMessage(task);
     const cached = messageCache.get(taskId);
 
     if (cached) {
         const msg = await channel.messages.fetch(cached.messageId).catch(() => null);
         if (msg) {
-            await msg.edit({ embeds: [embed], components });
+            await msg.edit({ flags: MessageFlags.IsComponentsV2, components });
             return;
         }
     }
 
-    const sent = await channel.send({ embeds: [embed], components });
+    const sent = await channel.send({ flags: MessageFlags.IsComponentsV2, components });
     messageCache.set(taskId, { messageId: sent.id, threadId: null });
-
-    // Persiste o messageId no Firestore
     await db.collection('tasks').doc(taskId).update({ discordMessageId: sent.id }).catch(() => { });
 }
 
-/** Cria um tópico na mensagem da tarefa quando alguém a pega */
 export async function createTaskThread(client, taskId, takenByUserId) {
     const channelId = process.env.TASKBOARD_CHANNEL_ID;
     const channel = await client.channels.fetch(channelId).catch(() => null);
@@ -130,10 +133,7 @@ export async function createTaskThread(client, taskId, takenByUserId) {
 
     if (cached.threadId) {
         const thread = await client.channels.fetch(cached.threadId).catch(() => null);
-        if (thread) {
-            await thread.members.add(takenByUserId).catch(() => { });
-            return;
-        }
+        if (thread) { await thread.members.add(takenByUserId).catch(() => { }); return; }
     }
 
     const msg = await channel.messages.fetch(cached.messageId).catch(() => null);
@@ -143,84 +143,88 @@ export async function createTaskThread(client, taskId, takenByUserId) {
     const doc = await db.collection('tasks').doc(taskId).get();
     const task = doc.data();
 
+    // Atualiza mensagem do taskboard para refletir status "taken"
+    const updatedComponents = buildTaskMessage({ id: taskId, ...task, status: 'taken', takenBy: takenByUserId });
+    await msg.edit({ flags: MessageFlags.IsComponentsV2, components: updatedComponents }).catch(() => { });
+
     const thread = await msg.startThread({
         name: `📋 ${task.title}`,
         autoArchiveDuration: 1440,
     });
 
-    await msg.edit({
-        content: "",
-        embeds: [
-            new EmbedBuilder()
-                .setColor(0x3498db)
-                .setTitle('🪖  Tarefa assumida!')
-                .setDescription(`<@${takenByUserId}> assumiu a tarefa **${task.title}**.\nUm tópico foi criado para acompanhamento — use-o para atualizações e coordenação com os membros.`)
-                .setTimestamp(),
-        ],
-        components: []
-    });
+    const doneBtn = new ButtonBuilder()
+        .setCustomId(`task_done_${taskId}`)
+        .setLabel('Marcar como concluída')
+        .setStyle(ButtonStyle.Success)
+        .setEmoji('✅');
 
-    const doneBtn = new ButtonBuilder();
-    doneBtn.setCustomId(`task_done_${taskId}`);
-    doneBtn.setLabel('Marcar como concluída');
-    doneBtn.setStyle(ButtonStyle.Success);
-    doneBtn.setEmoji('✅');
-
-    const row = new ActionRowBuilder().addComponents(doneBtn);
     const priInfo = PRIORITY[task.priority] ?? { label: task.priority };
     const catInfo = CATEGORIES[task.category] ?? { label: task.category };
 
+    let deadlineText = '';
+    if (task.deadlineAt) {
+        const unix = Math.floor((task.deadlineAt?.toDate ? task.deadlineAt.toDate() : new Date(task.deadlineAt)).getTime() / 1000);
+        deadlineText = `\n⏳ **Prazo:** <t:${unix}:R>`;
+    }
+
+    const descText = task.description ? task.description : '_Sem descrição_';
+
     await thread.send({
-        embeds: [
-            new EmbedBuilder()
-                .setTitle('🪖  Tarefa em andamento!')
-                .setColor(0x3498db)
-                .setDescription(
-                    `<@${takenByUserId}> assumiu esta tarefa. Bom trabalho, soldado!\n\n` +
-                    `Use este tópico para atualizações de progresso, dúvidas e coordenação com o regimento.`
+        flags: MessageFlags.IsComponentsV2,
+        components: [
+            new ContainerBuilder()
+                .setAccentColor(0x3498db)
+                .addTextDisplayComponents(
+                    new TextDisplayBuilder().setContent('## 🪖  Tarefa assumida!'),
+                    new TextDisplayBuilder().setContent(
+                        `<@${takenByUserId}> assumiu esta tarefa. Bom trabalho, soldado!\n` +
+                        `Use este tópico para atualizações, dúvidas e coordenação com o regimento.`
+                    ),
                 )
-                .addFields(
-                    { name: 'Categoria', value: catInfo.label, inline: true },
-                    { name: 'Prioridade', value: priInfo.label, inline: true },
-                    { name: 'Descrição', value: task.description || '_Sem descrição_', inline: false },
+                .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+                .addTextDisplayComponents(
+                    new TextDisplayBuilder().setContent(
+                        `**${catInfo.label}**  •  ${priInfo.label}${deadlineText}\n\n${descText}`
+                    ),
                 )
-                .setFooter({ text: 'Quando concluir, clique no botão abaixo.' })
-                .setTimestamp(),
+                .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+                .addActionRowComponents(new ActionRowBuilder().addComponents(doneBtn))
+                .addTextDisplayComponents(
+                    new TextDisplayBuilder().setContent('-# Clique no botão acima quando concluir.'),
+                ),
         ],
-        components: [row],
     });
 
     await thread.members.add(takenByUserId).catch(() => { });
-
     messageCache.set(taskId, { messageId: cached.messageId, threadId: thread.id });
-
-    // Persiste threadId no Firestore
     await db.collection('tasks').doc(taskId).update({ discordThreadId: thread.id }).catch(() => { });
 
-    // Agenda lembrete de inatividade
     scheduleReminder(client, taskId, takenByUserId, TASK_REMINDER_MS);
 
-    // Agenda lembrete de prazo (avisa 30 min antes se houver prazo)
     if (task.deadlineAt) {
         const deadlineDate = task.deadlineAt?.toDate ? task.deadlineAt.toDate() : new Date(task.deadlineAt);
         const msUntilWarning = deadlineDate.getTime() - Date.now() - 30 * 60_000;
         if (msUntilWarning > 0) {
             setTimeout(async () => {
-                const cached2 = messageCache.get(taskId);
-                if (!cached2?.threadId) return;
-                const db2 = getDb();
-                const doc2 = await db2.collection('tasks').doc(taskId).get().catch(() => null);
-                if (!doc2?.exists || doc2.data().status !== 'taken') return;
-                const thread2 = await client.channels.fetch(cached2.threadId).catch(() => null);
-                if (!thread2) return;
+                const c = messageCache.get(taskId);
+                if (!c?.threadId) return;
+                const d = await getDb().collection('tasks').doc(taskId).get().catch(() => null);
+                if (!d?.exists || d.data().status !== 'taken') return;
+                const t = await client.channels.fetch(c.threadId).catch(() => null);
+                if (!t) return;
                 const unix = Math.floor(deadlineDate.getTime() / 1000);
-                await thread2.send({
-                    embeds: [
-                        new EmbedBuilder()
-                            .setColor(0xe74c3c)
-                            .setTitle('⚠️  Prazo se aproximando!')
-                            .setDescription(`<@${takenByUserId}>, o prazo desta tarefa expira <t:${unix}:R>!Conclua logo ou avise o regimento se precisar de ajuda.`)
-                            .setTimestamp(),
+                await t.send({
+                    flags: MessageFlags.IsComponentsV2,
+                    components: [
+                        new ContainerBuilder()
+                            .setAccentColor(0xe74c3c)
+                            .addTextDisplayComponents(
+                                new TextDisplayBuilder().setContent('## ⚠️  Prazo se aproximando!'),
+                                new TextDisplayBuilder().setContent(
+                                    `<@${takenByUserId}>, o prazo expira <t:${unix}:R>!\n` +
+                                    `Conclua logo ou avise o regimento se precisar de ajuda.`
+                                ),
+                            ),
                     ],
                 }).catch(() => { });
             }, msUntilWarning);
@@ -228,7 +232,6 @@ export async function createTaskThread(client, taskId, takenByUserId) {
     }
 }
 
-/** Manda uma mensagem de status no tópico da tarefa */
 export async function postToThread(client, taskId, message) {
     const cached = messageCache.get(taskId);
     if (!cached?.threadId) return;
@@ -236,7 +239,6 @@ export async function postToThread(client, taskId, message) {
     if (thread) await thread.send(message).catch(() => { });
 }
 
-/** Remove um usuário do tópico da tarefa */
 export async function removeFromThread(client, taskId, userId) {
     const cached = messageCache.get(taskId);
     if (!cached?.threadId) return;
@@ -244,48 +246,37 @@ export async function removeFromThread(client, taskId, userId) {
     if (thread) await thread.members.remove(userId).catch(() => { });
 }
 
-/** Agenda lembrete automático para tarefa em andamento */
 function scheduleReminder(client, taskId, userId, delay) {
     cancelReminder(taskId);
     const timer = setTimeout(async () => {
         const cached = messageCache.get(taskId);
         if (!cached?.threadId) return;
-
-        const db = getDb();
-        const doc = await db.collection('tasks').doc(taskId).get().catch(() => null);
-        if (!doc?.exists) return;
-
-        const task = doc.data();
-        if (task.status !== 'taken') return;
-
+        const doc = await getDb().collection('tasks').doc(taskId).get().catch(() => null);
+        if (!doc?.exists || doc.data().status !== 'taken') return;
         const thread = await client.channels.fetch(cached.threadId).catch(() => null);
         if (!thread) return;
-
         await thread.send({
-            embeds: [
-                new EmbedBuilder()
-                    .setColor(0xe67e22)
-                    .setTitle('⏰  Lembrete de tarefa')
-                    .setDescription(
-                        `<@${userId}>, esta tarefa está em andamento há mais de ${Math.round(TASK_REMINDER_MS / 3600000)}h.\n\n` +
-                        `Precisa de ajuda ou já concluiu? Atualize o status!`
-                    )
-                    .setTimestamp(),
+            flags: MessageFlags.IsComponentsV2,
+            components: [
+                new ContainerBuilder()
+                    .setAccentColor(0xe67e22)
+                    .addTextDisplayComponents(
+                        new TextDisplayBuilder().setContent('## ⏰  Lembrete de tarefa'),
+                        new TextDisplayBuilder().setContent(
+                            `<@${userId}>, esta tarefa está em andamento há mais de ${Math.round(TASK_REMINDER_MS / 3600000)}h.\n` +
+                            `Precisa de ajuda ou já concluiu? Atualize o status!`
+                        ),
+                    ),
             ],
         });
-
         reminderTimers.delete(taskId);
     }, delay);
-
     reminderTimers.set(taskId, timer);
 }
 
 function cancelReminder(taskId) {
     const timer = reminderTimers.get(taskId);
-    if (timer) {
-        clearTimeout(timer);
-        reminderTimers.delete(taskId);
-    }
+    if (timer) { clearTimeout(timer); reminderTimers.delete(taskId); }
 }
 
 function buildTaskMessage(task) {
@@ -293,65 +284,72 @@ function buildTaskMessage(task) {
     const statusInfo = STATUS[task.status] ?? STATUS.open;
     const priInfo = PRIORITY[task.priority] ?? { label: task.priority };
 
-    const embed = new EmbedBuilder()
-        .setColor(statusInfo.color)
-        .setAuthor({ name: catInfo.label })
-        .setTitle(task.title)
-        .addFields(
-            { name: '📊  Status', value: statusInfo.label, inline: true },
-            { name: '⚡  Prioridade', value: priInfo.label, inline: true },
-            { name: '👤  Criado por', value: `<@${task.createdBy}>`, inline: true },
-            { name: '📝  Descrição', value: task.description || '_Sem descrição_', inline: false },
-        )
-        .setFooter({ text: `ID: ${task.id}  •  FELB Regiment` })
-        .setTimestamp(task.createdAt?.toDate?.() ?? new Date());
+    const expired = task.deadlineAt &&
+        (task.deadlineAt?.toDate ? task.deadlineAt.toDate() : new Date(task.deadlineAt)).getTime() < Date.now();
+    const accentColor = (expired && task.status === 'taken') ? 0xe74c3c : statusInfo.color;
 
-    if (task.imageUrl) embed.setImage(task.imageUrl);
-
-    if (task.takenBy) {
-        embed.addFields({ name: '🪖  Responsável', value: `<@${task.takenBy}>`, inline: true });
-    }
-
+    let deadlineText = '';
     if (task.deadlineAt) {
         const deadlineDate = task.deadlineAt?.toDate ? task.deadlineAt.toDate() : new Date(task.deadlineAt);
         const unix = Math.floor(deadlineDate.getTime() / 1000);
-        const now = Date.now();
-        const expired = deadlineDate.getTime() < now;
-        embed.addFields({
-            name: expired ? '🔴  Prazo EXPIRADO' : '⏳  Prazo',
-            value: `<t:${unix}:R> (<t:${unix}:f>)`,
-            inline: false,
-        });
-        if (expired && task.status === 'taken') {
-            embed.setColor(0xe74c3c); // vermelho se expirou e ainda em andamento
-        }
+        deadlineText = expired
+            ? `\n🔴 **Prazo EXPIRADO** — <t:${unix}:R>`
+            : `\n⏳ **Prazo** — <t:${unix}:R>`;
     }
 
-    const buttons = buildButtons(task);
-    const components = buttons.length > 0 ? [new ActionRowBuilder().addComponents(...buttons)] : [];
+    const responsavelText = task.takenBy ? `\n🪖 **Responsável** — <@${task.takenBy}>` : '';
+    const descText = task.description ? '\n\n' + task.description : '';
 
-    return { embed, components };
+    const metaLine = `${statusInfo.label}  •  ${priInfo.label}  •  👤 <@${task.createdBy}>`;
+
+    const buttons = buildButtons(task);
+
+    const container = new ContainerBuilder()
+        .setAccentColor(accentColor)
+        .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(`**${catInfo.label}**`),
+            new TextDisplayBuilder().setContent(`## ${task.title}`),
+        )
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(
+                metaLine + deadlineText + responsavelText + descText
+            ),
+        )
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(false).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(`-# ID: ${task.id}  •  FELB Regiment`),
+        );
+
+    if (buttons.length > 0) {
+        container.addSeparatorComponents(new SeparatorBuilder().setDivider(false).setSpacing(SeparatorSpacingSize.Small));
+        container.addActionRowComponents(new ActionRowBuilder().addComponents(...buttons));
+    }
+
+    return [container];
 }
 
 function buildButtons(task) {
     const buttons = [];
 
     if (task.status === 'approved') {
-        const take = new ButtonBuilder();
-        take.setCustomId(`task_take_${task.id}`);
-        take.setLabel('Assumir tarefa');
-        take.setStyle(ButtonStyle.Primary);
-        take.setEmoji('🪖');
-        buttons.push(take);
+        buttons.push(
+            new ButtonBuilder()
+                .setCustomId(`task_take_${task.id}`)
+                .setLabel('Assumir tarefa')
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji('🪖')
+        );
     }
 
     if (task.status === 'taken') {
-        const done = new ButtonBuilder();
-        done.setCustomId(`task_done_${task.id}`);
-        done.setLabel('Concluída');
-        done.setStyle(ButtonStyle.Success);
-        done.setEmoji('✅');
-        buttons.push(done);
+        buttons.push(
+            new ButtonBuilder()
+                .setCustomId(`task_done_${task.id}`)
+                .setLabel('Concluída')
+                .setStyle(ButtonStyle.Success)
+                .setEmoji('✅')
+        );
     }
 
     return buttons;

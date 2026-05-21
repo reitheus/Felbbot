@@ -1,9 +1,18 @@
-import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import {
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonStyle,
+    ContainerBuilder,
+    EmbedBuilder,
+    MessageFlags,
+    SeparatorBuilder,
+    SeparatorSpacingSize,
+    TextDisplayBuilder,
+} from 'discord.js';
 import { CATEGORIES, PRIORITY } from './constants.js';
 
 const approvalCache = new Map();
 
-/** Envia uma tarefa nova para o canal de aprovação dos líderes */
 export async function sendToApproval(client, task) {
     const channelId = process.env.APPROVAL_CHANNEL_ID;
     if (!channelId) return;
@@ -11,49 +20,60 @@ export async function sendToApproval(client, task) {
     const channel = await client.channels.fetch(channelId).catch(() => null);
     if (!channel) return console.error('❌ Canal de aprovação não encontrado.');
 
-    const catInfo = CATEGORIES[task.category] ?? { label: task.category, color: 0xffffff };
+    const catInfo = CATEGORIES[task.category] ?? { label: task.category };
     const priInfo = PRIORITY[task.priority] ?? { label: task.priority };
 
-    const embed = new EmbedBuilder()
-        .setColor(0xe67e22)
-        .setAuthor({ name: '⏳  Nova tarefa aguardando aprovação' })
-        .setTitle(task.title)
-        .setDescription('Um membro enviou uma nova requisição para o regimento. Revise e tome uma decisão.')
-        .addFields(
-            { name: '📦  Categoria', value: catInfo.label, inline: true },
-            { name: '⚡  Prioridade', value: priInfo.label, inline: true },
-            { name: '👤  Solicitado por', value: `<@${task.createdBy}>`, inline: true },
-            { name: '📝  Descrição', value: task.description || '_Sem descrição_', inline: false },
-            ...(task.deadlineAt ? [{
-                name: '⏳  Prazo',
-                value: `<t:${Math.floor((task.deadlineAt instanceof Date ? task.deadlineAt : new Date(task.deadlineAt)).getTime() / 1000)}:R>`,
-                inline: true,
-            }] : []),
+    let deadlineText = '';
+    if (task.deadlineAt) {
+        const unix = Math.floor(
+            (task.deadlineAt instanceof Date ? task.deadlineAt : new Date(task.deadlineAt)).getTime() / 1000
+        );
+        deadlineText = `\n⏳ **Prazo:** <t:${unix}:R>`;
+    }
+
+    const descText = task.description
+        ? task.description
+        : '_Sem descrição_';
+
+    const approveBtn = new ButtonBuilder()
+        .setCustomId(`task_approve_${task.id}`)
+        .setLabel('Aprovar')
+        .setStyle(ButtonStyle.Success)
+        .setEmoji('✅');
+
+    const rejectBtn = new ButtonBuilder()
+        .setCustomId(`task_reject_${task.id}`)
+        .setLabel('Rejeitar')
+        .setStyle(ButtonStyle.Danger)
+        .setEmoji('⛔');
+
+    const container = new ContainerBuilder()
+        .setAccentColor(0xe67e22)
+        .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(`**${catInfo.label}**  •  ${priInfo.label}`),
+            new TextDisplayBuilder().setContent(`## ${task.title}`),
         )
-        .setFooter({ text: `ID: ${task.id}  •  FELB Regiment` })
-        .setTimestamp();
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(
+                `👤 **Solicitado por:** <@${task.createdBy}>${deadlineText}\n\n${descText}`
+            ),
+        )
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(approveBtn, rejectBtn),
+        )
+        .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(`-# ID: ${task.id}  •  FELB Regiment`),
+        );
 
-    const approveBtn = new ButtonBuilder();
-    approveBtn.setCustomId(`task_approve_${task.id}`);
-    approveBtn.setLabel('Aprovar');
-    approveBtn.setStyle(ButtonStyle.Success);
-    approveBtn.setEmoji('✅');
-
-    const rejectBtn = new ButtonBuilder();
-    rejectBtn.setCustomId(`task_reject_${task.id}`);
-    rejectBtn.setLabel('Rejeitar');
-    rejectBtn.setStyle(ButtonStyle.Danger);
-    rejectBtn.setEmoji('⛔');
-
-    const row = new ActionRowBuilder().addComponents(approveBtn, rejectBtn);
-
-    if (task.imageUrl) embed.setImage(task.imageUrl);
-
-    const sent = await channel.send({ embeds: [embed], components: [row] });
+    const sent = await channel.send({
+        flags: MessageFlags.IsComponentsV2,
+        components: [container],
+    });
     approvalCache.set(task.id, sent.id);
 }
 
-/** Remove a mensagem de aprovação após a tarefa ser aprovada ou rejeitada */
 export async function removeFromApproval(client, taskId) {
     const channelId = process.env.APPROVAL_CHANNEL_ID;
     if (!channelId) return;
@@ -69,14 +89,39 @@ export async function removeFromApproval(client, taskId) {
         return;
     }
 
-    // Fallback: busca pelo footer quando o cache foi perdido (ex: bot reiniciou)
+    // Fallback: busca pelo ID no conteúdo dos components
     const messages = await channel.messages.fetch({ limit: 50 }).catch(() => null);
     if (!messages) return;
 
     const target = messages.find(m =>
         m.author.id === client.user.id &&
-        m.embeds?.[0]?.footer?.text?.includes(`ID: ${taskId}`)
+        m.components?.some(c => JSON.stringify(c).includes(`task_approve_${taskId}`))
     );
 
     if (target) await target.delete().catch(() => { });
+}
+
+export async function notifyCreator(client, task, action, leaderUserId) {
+    try {
+        const creator = await client.users.fetch(task.createdBy).catch(() => null);
+        if (!creator) return;
+
+        const isApproved = action === 'approved';
+
+        await creator.send({
+            embeds: [
+                new EmbedBuilder()
+                    .setColor(isApproved ? 0x2ecc71 : 0xe74c3c)
+                    .setTitle(isApproved ? '✅  Sua tarefa foi aprovada!' : '⛔  Sua tarefa foi rejeitada')
+                    .setDescription(
+                        isApproved
+                            ? `A tarefa **${task.title}** foi aprovada por <@${leaderUserId}> e já está disponível no taskboard.`
+                            : `A tarefa **${task.title}** foi rejeitada por <@${leaderUserId}>.\nSe tiver dúvidas, entre em contato com um líder.`
+                    )
+                    .setTimestamp(),
+            ],
+        }).catch(() => { });
+    } catch (err) {
+        console.error('Erro ao notificar criador:', err);
+    }
 }
