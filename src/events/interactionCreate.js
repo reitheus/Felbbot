@@ -14,8 +14,11 @@ import {
     TextInputBuilder,
     TextInputStyle,
 } from 'discord.js';
-import { removeFromApproval, sendToApproval, notifyCreator } from '../utils/approval.js';
-import { CATEGORIES, isLeader, MAX_TASKS_PER_USER, PENDING_SELECTION_TTL, PRIORITY } from '../utils/constants.js';
+import { notifyCreator, removeFromApproval, sendToApproval } from '../utils/approval.js';
+import {
+    CATEGORIES, FACTORY_PROCESSES, FACTORY_TYPES, PROCESS_RECIPES,
+    isLeader, MAX_TASKS_PER_USER, PENDING_SELECTION_TTL, PRIORITY,
+} from '../utils/constants.js';
 import { getDb } from '../utils/firebase.js';
 import { createTaskThread, postToThread, refreshSingleTask, removeFromThread } from '../utils/taskboard.js';
 
